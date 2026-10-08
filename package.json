@@ -1,0 +1,19 @@
+{
+  "name": "securevault",
+  "version": "0.0.0",
+  "description": "SecureVault - High-security encrypted digital vault and application",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test tests/*.test.js",
+    "scan:secrets": "node scripts/secret-scan.js"
+  },
+  "keywords": [
+    "security",
+    "vault",
+    "encryption",
+    "authentication"
+  ],
+  "author": "Nihal Kolluri",
+  "license": "MIT"
+}
