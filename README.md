@@ -7,7 +7,7 @@ SecureVault is an encrypted digital vault application designed with robust secur
 | Phase | Name | Branch | Status | Release Tag |
 | :---: | :--- | :--- | :---: | :---: |
 | **Phase 0** | Project Setup & Scaffold | `main` | ✅ Completed | `v0.0.0` |
-| **Phase 1** | Authentication & Identity | `phase-1-auth` | ⏳ Pending | - |
+| **Phase 1** | Authentication & Identity | `phase-1-auth` | ✅ Completed | `v0.1.0` |
 | **Phase 2** | Cryptographic Vault Engine | `phase-2-crypto` | ⏳ Pending | - |
 | **Phase 3** | Vault Storage & Access Control | `phase-3-vault-storage` | ⏳ Pending | - |
 | **Phase 4** | Audit Logging & Monitoring | `phase-4-audit-logging` | ⏳ Pending | - |
