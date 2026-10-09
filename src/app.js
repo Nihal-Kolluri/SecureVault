@@ -2,7 +2,7 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const path = require('path');
 const authRouter = require('./routes/auth');
-const { getVaultStatus } = require('./index');
+const { getVaultStatus } = require('./status');
 
 function createApp() {
   const app = express();

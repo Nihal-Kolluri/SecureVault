@@ -1,17 +1,6 @@
 const http = require('http');
 const { initDatabase } = require('./db/database');
-
-/**
- * SecureVault core status reporting
- */
-function getVaultStatus() {
-  return {
-    status: 'online',
-    version: '0.1.0',
-    phase: 'Phase 1: Authentication and sessions',
-    timestamp: new Date().toISOString()
-  };
-}
+const { getVaultStatus } = require('./status');
 
 let serverInstance = null;
 
