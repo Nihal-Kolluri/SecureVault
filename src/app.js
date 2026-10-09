@@ -33,7 +33,7 @@ function createApp() {
   app.use('/api/auth', authRouter);
 
   // Fallback to index.html for frontend routing
-  app.get('*', (req, res) => {
+  app.use((req, res) => {
     // If asking for API, send 404
     if (req.path.startsWith('/api')) {
       return res.status(404).json({ error: 'Endpoint not found' });
