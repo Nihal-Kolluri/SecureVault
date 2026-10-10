@@ -4,8 +4,8 @@
 function getVaultStatus() {
   return {
     status: 'online',
-    version: '0.1.0',
-    phase: 'Phase 1: Authentication and sessions',
+    version: '0.2.0',
+    phase: 'Phase 2: MFA',
     timestamp: new Date().toISOString()
   };
 }

@@ -4,7 +4,10 @@ let sessionState = {
   refreshToken: null,
   user: null,
   tokenExpiresAt: null,
-  countdownInterval: null
+  countdownInterval: null,
+  mfaPendingToken: null,
+  pendingSetupToken: null,
+  currentRecoveryCodes: []
 };
 
 // Switch between Sign In and Register tabs
@@ -15,8 +18,12 @@ function switchTab(tab) {
   const signInForm = document.getElementById('signInForm');
   const registerForm = document.getElementById('registerForm');
   const vaultDashboard = document.getElementById('vaultDashboard');
+  const mfaVerifyView = document.getElementById('mfaVerifyView');
+  const mfaSetupView = document.getElementById('mfaSetupView');
 
   vaultDashboard.classList.add('hidden');
+  mfaVerifyView.classList.add('hidden');
+  mfaSetupView.classList.add('hidden');
 
   if (tab === 'signin') {
     tabSignIn.classList.add('active');
@@ -106,7 +113,13 @@ async function handleSignIn(event) {
       throw new Error(data.error || 'Invalid email or password.');
     }
 
-    // Success: activate session
+    if (data.mfaRequired) {
+      // Transition to Six-Box MFA Verification screen
+      showMfaVerification(data.mfaToken);
+      return;
+    }
+
+    // Direct password success (no MFA enabled)
     setSession(data);
   } catch (err) {
     showAlert(err.message, 'error');
@@ -145,7 +158,6 @@ async function handleRegister(event) {
       throw new Error(data.error || 'Failed to create account.');
     }
 
-    // Success alert, then switch to sign in
     showAlert('Vault account registered successfully! Please sign in.', 'success');
     document.getElementById('registerForm').reset();
     document.getElementById('signinEmail').value = email;
@@ -161,28 +173,393 @@ async function handleRegister(event) {
   }
 }
 
-// Set active authenticated session
+/* -------------------------------------------------------------------------- */
+/*                       Six-Box MFA Verification Logic                       */
+/* -------------------------------------------------------------------------- */
+
+function showMfaVerification(mfaToken) {
+  sessionState.mfaPendingToken = mfaToken;
+
+  document.getElementById('signInForm').classList.add('hidden');
+  document.getElementById('registerForm').classList.add('hidden');
+  document.getElementById('authTabs').style.display = 'none';
+
+  const mfaView = document.getElementById('mfaVerifyView');
+  mfaView.classList.remove('hidden');
+
+  toggleRecoveryMode(false);
+  clearMfaBoxes();
+
+  const boxes = document.querySelectorAll('.mfa-box');
+  if (boxes.length > 0) {
+    setTimeout(() => boxes[0].focus(), 100);
+  }
+
+  showAlert('Two-factor authentication required. Please enter your 6-digit code.', 'success');
+}
+
+function clearMfaBoxes() {
+  const boxes = document.querySelectorAll('.mfa-box');
+  boxes.forEach((box) => (box.value = ''));
+}
+
+function getMfaBoxesValue() {
+  const boxes = document.querySelectorAll('.mfa-box');
+  let code = '';
+  boxes.forEach((b) => (code += b.value));
+  return code;
+}
+
+function initSixBoxes() {
+  const boxes = document.querySelectorAll('.mfa-box');
+
+  boxes.forEach((box, idx) => {
+    box.addEventListener('input', (e) => {
+      const val = e.target.value.replace(/[^0-9]/g, '');
+      box.value = val;
+
+      if (val && idx < boxes.length - 1) {
+        boxes[idx + 1].focus();
+      }
+
+      // If all 6 boxes are filled, auto-submit
+      if (getMfaBoxesValue().length === 6) {
+        submitMfaCode();
+      }
+    });
+
+    box.addEventListener('keydown', (e) => {
+      if (e.key === 'Backspace' && !box.value && idx > 0) {
+        boxes[idx - 1].focus();
+      } else if (e.key === 'ArrowLeft' && idx > 0) {
+        boxes[idx - 1].focus();
+      } else if (e.key === 'ArrowRight' && idx < boxes.length - 1) {
+        boxes[idx + 1].focus();
+      }
+    });
+
+    box.addEventListener('paste', (e) => {
+      e.preventDefault();
+      const text = (e.clipboardData || window.clipboardData).getData('text');
+      const digits = text.replace(/[^0-9]/g, '').slice(0, 6);
+
+      digits.split('').forEach((d, i) => {
+        if (boxes[i]) boxes[i].value = d;
+      });
+
+      if (digits.length === 6) {
+        boxes[5].focus();
+        submitMfaCode();
+      } else if (digits.length > 0) {
+        const nextIdx = Math.min(digits.length, boxes.length - 1);
+        boxes[nextIdx].focus();
+      }
+    });
+  });
+}
+
+function toggleRecoveryMode(showRecovery) {
+  hideAlert();
+  const totpSection = document.getElementById('totpInputSection');
+  const recoverySection = document.getElementById('recoveryInputSection');
+  const promptText = document.getElementById('mfaPromptText');
+
+  if (showRecovery) {
+    totpSection.classList.add('hidden');
+    recoverySection.classList.remove('hidden');
+    promptText.textContent = 'Enter an 8-character emergency recovery code (XXXX-XXXX).';
+    const recInput = document.getElementById('recoveryCodeInput');
+    recInput.value = '';
+    setTimeout(() => recInput.focus(), 50);
+  } else {
+    totpSection.classList.remove('hidden');
+    recoverySection.classList.add('hidden');
+    promptText.textContent = 'Enter the 6-digit verification code from your authenticator app.';
+    clearMfaBoxes();
+    const boxes = document.querySelectorAll('.mfa-box');
+    if (boxes[0]) setTimeout(() => boxes[0].focus(), 50);
+  }
+}
+
+async function submitMfaCode() {
+  hideAlert();
+  const code = getMfaBoxesValue();
+
+  if (code.length !== 6) {
+    showAlert('Please enter all 6 digits of your authenticator code.', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('mfaVerifyBtn');
+  const btnText = btn.querySelector('.btn-text');
+  const btnSpinner = btn.querySelector('.btn-spinner');
+
+  btn.disabled = true;
+  btnText.classList.add('hidden');
+  btnSpinner.classList.remove('hidden');
+
+  try {
+    const res = await fetch('/api/auth/mfa/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mfaToken: sessionState.mfaPendingToken,
+        code
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Invalid authentication code.');
+    }
+
+    document.getElementById('mfaVerifyView').classList.add('hidden');
+    setSession(data);
+  } catch (err) {
+    showAlert(err.message, 'error');
+    clearMfaBoxes();
+    const boxes = document.querySelectorAll('.mfa-box');
+    if (boxes[0]) boxes[0].focus();
+  } finally {
+    btn.disabled = false;
+    btnText.classList.remove('hidden');
+    btnSpinner.classList.add('hidden');
+  }
+}
+
+async function submitRecoveryCode() {
+  hideAlert();
+  const rawCode = document.getElementById('recoveryCodeInput').value.trim();
+
+  if (!rawCode) {
+    showAlert('Please enter your recovery code.', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('recoveryVerifyBtn');
+  const btnText = btn.querySelector('.btn-text');
+  const btnSpinner = btn.querySelector('.btn-spinner');
+
+  btn.disabled = true;
+  btnText.classList.add('hidden');
+  btnSpinner.classList.remove('hidden');
+
+  try {
+    const res = await fetch('/api/auth/mfa/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mfaToken: sessionState.mfaPendingToken,
+        recoveryCode: rawCode
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Invalid recovery code.');
+    }
+
+    document.getElementById('mfaVerifyView').classList.add('hidden');
+    setSession(data);
+  } catch (err) {
+    showAlert(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btnText.classList.remove('hidden');
+    btnSpinner.classList.add('hidden');
+  }
+}
+
+function cancelMfaVerification() {
+  sessionState.mfaPendingToken = null;
+  document.getElementById('mfaVerifyView').classList.add('hidden');
+  document.getElementById('authTabs').style.display = 'flex';
+  switchTab('signin');
+}
+
+/* -------------------------------------------------------------------------- */
+/*                        Dashboard & MFA Enrollment                          */
+/* -------------------------------------------------------------------------- */
+
 function setSession(data) {
   sessionState.accessToken = data.accessToken;
   sessionState.refreshToken = data.refreshToken;
   sessionState.user = data.user;
-  // 15-minute expiration timestamp
   sessionState.tokenExpiresAt = Date.now() + 15 * 60 * 1000;
 
-  // Update UI to show dashboard
   document.getElementById('signInForm').classList.add('hidden');
   document.getElementById('registerForm').classList.add('hidden');
   document.getElementById('authTabs').style.display = 'none';
-  
+  document.getElementById('mfaVerifyView').classList.add('hidden');
+  document.getElementById('mfaSetupView').classList.add('hidden');
+
   const dashboard = document.getElementById('vaultDashboard');
   dashboard.classList.remove('hidden');
   document.getElementById('dashUserEmail').textContent = data.user.email;
 
+  updateMfaStatusUI(data.user.mfaEnabled);
   startJwtCountdown();
-  showAlert('Authenticated with 15-minute sliding access token.', 'success');
+  fetchMfaStatus();
+  showAlert('Authenticated securely with 15-minute sliding session.', 'success');
 }
 
-// Countdown timer for 15-minute JWT
+function updateMfaStatusUI(enabled, remainingCodes = null) {
+  const badge = document.getElementById('mfaBadge');
+  const subText = document.getElementById('mfaSubText');
+  const setupBtn = document.getElementById('mfaSetupBtn');
+  const disableBtn = document.getElementById('mfaDisableBtn');
+
+  if (enabled) {
+    badge.textContent = 'ACTIVE';
+    badge.style.color = '#34d399';
+    subText.textContent = remainingCodes !== null ? `${remainingCodes} recovery codes` : 'TOTP protected';
+    setupBtn.classList.add('hidden');
+    disableBtn.classList.remove('hidden');
+  } else {
+    badge.textContent = 'DISABLED';
+    badge.style.color = 'var(--text-dim)';
+    subText.textContent = 'TOTP enrollment available';
+    setupBtn.classList.remove('hidden');
+    disableBtn.classList.add('hidden');
+  }
+}
+
+async function fetchMfaStatus() {
+  try {
+    const res = await fetch('/api/auth/mfa/status', {
+      headers: { 'Authorization': `Bearer ${sessionState.accessToken}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      updateMfaStatusUI(data.mfaEnabled, data.remainingRecoveryCodes);
+    }
+  } catch {
+    // Ignore status check error
+  }
+}
+
+async function openMfaSetup() {
+  hideAlert();
+  try {
+    const res = await fetch('/api/auth/mfa/setup', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${sessionState.accessToken}`
+      }
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to start MFA setup');
+
+    sessionState.pendingSetupToken = data.setupToken;
+    sessionState.currentRecoveryCodes = data.recoveryCodes;
+
+    document.getElementById('vaultDashboard').classList.add('hidden');
+    const setupView = document.getElementById('mfaSetupView');
+    setupView.classList.remove('hidden');
+
+    document.getElementById('mfaQrImage').src = data.qrCode;
+    document.getElementById('mfaSecretCode').textContent = data.secret;
+
+    const grid = document.getElementById('recoveryCodesGrid');
+    grid.innerHTML = '';
+    data.recoveryCodes.forEach((code) => {
+      const tag = document.createElement('div');
+      tag.className = 'recovery-code-tag';
+      tag.textContent = code;
+      grid.appendChild(tag);
+    });
+
+    document.getElementById('mfaConfirmCode').value = '';
+    setTimeout(() => document.getElementById('mfaConfirmCode').focus(), 100);
+  } catch (err) {
+    showAlert(err.message, 'error');
+  }
+}
+
+function closeMfaSetup() {
+  sessionState.pendingSetupToken = null;
+  document.getElementById('mfaSetupView').classList.add('hidden');
+  document.getElementById('vaultDashboard').classList.remove('hidden');
+}
+
+function copyRecoveryCodes() {
+  if (!sessionState.currentRecoveryCodes.length) return;
+  const text = sessionState.currentRecoveryCodes.join('\n');
+  navigator.clipboard.writeText(text).then(() => {
+    showAlert('Recovery codes copied to clipboard! Store them safely.', 'success');
+  }).catch(() => {
+    showAlert('Failed to copy. Please manually copy the codes.', 'error');
+  });
+}
+
+async function submitMfaConfirmation() {
+  hideAlert();
+  const code = document.getElementById('mfaConfirmCode').value.trim();
+
+  if (!code || code.length !== 6) {
+    showAlert('Please enter the 6-digit confirmation code from your app.', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('confirmMfaBtn');
+  const btnText = btn.querySelector('.btn-text');
+  const btnSpinner = btn.querySelector('.btn-spinner');
+
+  btn.disabled = true;
+  btnText.classList.add('hidden');
+  btnSpinner.classList.remove('hidden');
+
+  try {
+    const res = await fetch('/api/auth/mfa/confirm', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${sessionState.accessToken}`
+      },
+      body: JSON.stringify({
+        setupToken: sessionState.pendingSetupToken,
+        code
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to confirm MFA');
+
+    closeMfaSetup();
+    updateMfaStatusUI(true, 8);
+    showAlert('Two-factor authentication successfully enabled!', 'success');
+  } catch (err) {
+    showAlert(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btnText.classList.remove('hidden');
+    btnSpinner.classList.add('hidden');
+  }
+}
+
+async function handleDisableMfa() {
+  if (!confirm('Are you sure you want to disable two-factor authentication?')) return;
+  hideAlert();
+
+  try {
+    const res = await fetch('/api/auth/mfa/disable', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${sessionState.accessToken}`
+      }
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to disable MFA');
+
+    updateMfaStatusUI(false);
+    showAlert('Two-factor authentication disabled.', 'success');
+  } catch (err) {
+    showAlert(err.message, 'error');
+  }
+}
+
 function startJwtCountdown() {
   if (sessionState.countdownInterval) {
     clearInterval(sessionState.countdownInterval);
@@ -209,7 +586,6 @@ function startJwtCountdown() {
   sessionState.countdownInterval = setInterval(update, 1000);
 }
 
-// Test protected endpoint
 async function testProtectedEndpoint() {
   const outputBox = document.getElementById('apiOutput');
   const codeElem = document.getElementById('apiOutputCode');
@@ -229,7 +605,6 @@ async function testProtectedEndpoint() {
   }
 }
 
-// Trigger token rotation manually from dashboard
 async function triggerTokenRefresh() {
   hideAlert();
   try {
@@ -252,7 +627,6 @@ async function triggerTokenRefresh() {
   }
 }
 
-// Handle Logout
 async function handleLogout() {
   if (sessionState.countdownInterval) {
     clearInterval(sessionState.countdownInterval);
@@ -265,7 +639,7 @@ async function handleLogout() {
       body: JSON.stringify({ refreshToken: sessionState.refreshToken })
     });
   } catch {
-    // Ignore network error on logout
+    // Ignore network error
   }
 
   sessionState = {
@@ -273,12 +647,49 @@ async function handleLogout() {
     refreshToken: null,
     user: null,
     tokenExpiresAt: null,
-    countdownInterval: null
+    countdownInterval: null,
+    mfaPendingToken: null,
+    pendingSetupToken: null,
+    currentRecoveryCodes: []
   };
 
   document.getElementById('vaultDashboard').classList.add('hidden');
+  document.getElementById('mfaVerifyView').classList.add('hidden');
+  document.getElementById('mfaSetupView').classList.add('hidden');
   document.getElementById('authTabs').style.display = 'flex';
   document.getElementById('apiOutput').classList.add('hidden');
   switchTab('signin');
   showAlert('Vault session terminated securely.', 'success');
 }
+
+// Initialize on DOM load
+window.addEventListener('DOMContentLoaded', () => {
+  initSixBoxes();
+
+  // Query parameter handling for UI previews and documentation screenshots
+  const params = new URLSearchParams(window.location.search);
+  const view = params.get('view');
+  if (view === 'mfa-verify') {
+    showMfaVerification('preview_mfa_token');
+  } else if (view === 'mfa-setup') {
+    // Generate dummy QR and setup state for visual documentation
+    sessionState.currentRecoveryCodes = [
+      'A7K2-9LP4', 'M4D8-2WJ9', 'R3X7-5QP1', 'H8V2-6ZN3',
+      'C9B1-4TK8', 'E2F6-8YM5', 'P5J3-7LR2', 'K1W9-3HD6'
+    ];
+    document.getElementById('signInForm').classList.add('hidden');
+    document.getElementById('authTabs').style.display = 'none';
+    const setupView = document.getElementById('mfaSetupView');
+    setupView.classList.remove('hidden');
+    document.getElementById('mfaSecretCode').textContent = 'JBSWY3DPEHPK3PXP';
+    document.getElementById('mfaQrImage').src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="white"/><rect x="10" y="10" width="30" height="30" fill="black"/><rect x="60" y="10" width="30" height="30" fill="black"/><rect x="10" y="60" width="30" height="30" fill="black"/><rect x="45" y="45" width="10" height="10" fill="black"/><rect x="70" y="70" width="20" height="20" fill="black"/></svg>';
+    const grid = document.getElementById('recoveryCodesGrid');
+    grid.innerHTML = '';
+    sessionState.currentRecoveryCodes.forEach((code) => {
+      const tag = document.createElement('div');
+      tag.className = 'recovery-code-tag';
+      tag.textContent = code;
+      grid.appendChild(tag);
+    });
+  }
+});

@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SecureVault - Sign In</title>
+  <title>SecureVault - Sign In & Two-Factor Authentication</title>
   <link rel="stylesheet" href="styles.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
   <div class="background-grid"></div>
@@ -160,6 +160,82 @@
         </button>
       </form>
 
+      <!-- Six-Box MFA Verification Screen -->
+      <section id="mfaVerifyView" class="mfa-verify-view hidden">
+        <div class="mfa-header">
+          <div class="mfa-key-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+              <circle cx="12" cy="16" r="1"></circle>
+            </svg>
+          </div>
+          <h2 class="mfa-title">Two-Factor Authentication</h2>
+          <p class="mfa-desc" id="mfaPromptText">Enter the 6-digit verification code from your authenticator app.</p>
+        </div>
+
+        <!-- 6-Box TOTP Input -->
+        <div id="totpInputSection">
+          <div class="six-box-container" id="sixBoxContainer">
+            <input type="text" class="mfa-box" maxlength="1" pattern="[0-9]" inputmode="numeric" data-index="0" autofocus>
+            <input type="text" class="mfa-box" maxlength="1" pattern="[0-9]" inputmode="numeric" data-index="1">
+            <input type="text" class="mfa-box" maxlength="1" pattern="[0-9]" inputmode="numeric" data-index="2">
+            <input type="text" class="mfa-box" maxlength="1" pattern="[0-9]" inputmode="numeric" data-index="3">
+            <input type="text" class="mfa-box" maxlength="1" pattern="[0-9]" inputmode="numeric" data-index="4">
+            <input type="text" class="mfa-box" maxlength="1" pattern="[0-9]" inputmode="numeric" data-index="5">
+          </div>
+
+          <button type="button" class="submit-btn" id="mfaVerifyBtn" onclick="submitMfaCode()">
+            <span class="btn-text">Verify Code</span>
+            <span class="btn-spinner hidden"></span>
+          </button>
+
+          <div class="mfa-alt-action">
+            <button type="button" class="text-link-btn" onclick="toggleRecoveryMode(true)">
+              Use an emergency recovery code
+            </button>
+          </div>
+        </div>
+
+        <!-- Emergency Recovery Code Input -->
+        <div id="recoveryInputSection" class="hidden">
+          <div class="form-group">
+            <label for="recoveryCodeInput" class="form-label">Emergency Recovery Code</label>
+            <div class="input-wrapper">
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 2l-2 2m-2-2l2 2M3 13l2-2m-2 2l2 2m7-9l9 9-4 4-9-9 4-4z"></path>
+              </svg>
+              <input 
+                type="text" 
+                id="recoveryCodeInput" 
+                class="form-input recovery-input" 
+                placeholder="XXXX-XXXX" 
+                maxlength="9"
+                autocomplete="off"
+              >
+            </div>
+            <span class="input-help">Recovery codes are one-time use only.</span>
+          </div>
+
+          <button type="button" class="submit-btn" id="recoveryVerifyBtn" onclick="submitRecoveryCode()">
+            <span class="btn-text">Verify Recovery Code</span>
+            <span class="btn-spinner hidden"></span>
+          </button>
+
+          <div class="mfa-alt-action">
+            <button type="button" class="text-link-btn" onclick="toggleRecoveryMode(false)">
+              Back to 6-digit authenticator code
+            </button>
+          </div>
+        </div>
+
+        <div class="mfa-cancel-action">
+          <button type="button" class="cancel-btn" onclick="cancelMfaVerification()">
+            Cancel & Return to Sign In
+          </button>
+        </div>
+      </section>
+
       <!-- Authenticated Vault Dashboard -->
       <div id="vaultDashboard" class="vault-dashboard hidden">
         <div class="dashboard-header">
@@ -180,13 +256,19 @@
             <span class="metric-sub">15-minute sliding window</span>
           </div>
           <div class="metric-card">
-            <span class="metric-title">SESSION STATUS</span>
-            <span class="metric-value active-status">ACTIVE</span>
-            <span class="metric-sub">Rotating token protected</span>
+            <span class="metric-title">TWO-FACTOR AUTH</span>
+            <span class="metric-value" id="mfaBadge">DISABLED</span>
+            <span class="metric-sub" id="mfaSubText">TOTP protection</span>
           </div>
         </div>
 
         <div class="dashboard-actions">
+          <button type="button" class="action-btn secondary" id="mfaSetupBtn" onclick="openMfaSetup()">
+            Configure Two-Factor Authentication (TOTP)
+          </button>
+          <button type="button" class="action-btn danger hidden" id="mfaDisableBtn" onclick="handleDisableMfa()">
+            Disable Two-Factor Authentication
+          </button>
           <button type="button" class="action-btn secondary" onclick="testProtectedEndpoint()">
             Verify Protected API (/api/auth/me)
           </button>
@@ -203,6 +285,63 @@
         </div>
       </div>
 
+      <!-- MFA Setup / Enrollment Modal View -->
+      <section id="mfaSetupView" class="mfa-setup-view hidden">
+        <div class="mfa-header">
+          <h2 class="mfa-title">Setup Two-Factor Authentication</h2>
+          <p class="mfa-desc">Protect your vault with Google Authenticator, Authy, or any TOTP app.</p>
+        </div>
+
+        <!-- Step 1: Scan QR Code -->
+        <div class="setup-step">
+          <span class="step-badge">STEP 1</span>
+          <p class="step-text">Scan this QR code with your authenticator app:</p>
+          <div class="qr-container">
+            <img id="mfaQrImage" class="qr-image" src="" alt="MFA QR Code">
+          </div>
+          <div class="manual-secret-box">
+            <span class="secret-label">Manual Secret Key:</span>
+            <code class="secret-code" id="mfaSecretCode"></code>
+          </div>
+        </div>
+
+        <!-- Step 2: Emergency Recovery Codes -->
+        <div class="setup-step">
+          <span class="step-badge">STEP 2</span>
+          <p class="step-text">Save these emergency recovery codes. Each can be used once if you lose device access:</p>
+          <div class="recovery-codes-grid" id="recoveryCodesGrid"></div>
+          <button type="button" class="action-btn secondary copy-codes-btn" onclick="copyRecoveryCodes()">
+            Copy Recovery Codes
+          </button>
+        </div>
+
+        <!-- Step 3: Confirmation -->
+        <div class="setup-step">
+          <span class="step-badge">STEP 3</span>
+          <p class="step-text">Enter the 6-digit code from your app to confirm enrollment:</p>
+          <div class="input-wrapper" style="max-width: 220px; margin: 0 auto;">
+            <input 
+              type="text" 
+              id="mfaConfirmCode" 
+              class="form-input text-center" 
+              placeholder="000000" 
+              maxlength="6"
+              inputmode="numeric"
+            >
+          </div>
+        </div>
+
+        <div class="setup-actions">
+          <button type="button" class="submit-btn" id="confirmMfaBtn" onclick="submitMfaConfirmation()">
+            <span class="btn-text">Confirm & Activate 2FA</span>
+            <span class="btn-spinner hidden"></span>
+          </button>
+          <button type="button" class="cancel-btn" onclick="closeMfaSetup()">
+            Cancel Setup
+          </button>
+        </div>
+      </section>
+
       <!-- Security Specifications Footer -->
       <footer class="security-badges">
         <div class="badge-item" title="Memory-hard key derivation function">
@@ -213,9 +352,13 @@
           <span class="badge-icon">⏱️</span>
           <span>15m JWT</span>
         </div>
+        <div class="badge-item" title="Time-based one-time password standard with QR">
+          <span class="badge-icon">📱</span>
+          <span>TOTP MFA</span>
+        </div>
         <div class="badge-item" title="Strict rotation with immediate reuse attack revocation">
           <span class="badge-icon">🔄</span>
-          <span>Reuse-Protected</span>
+          <span>Reuse-Safe</span>
         </div>
       </footer>
     </section>
