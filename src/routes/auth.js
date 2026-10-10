@@ -2,6 +2,7 @@ const express = require('express');
 const {
   registerUser,
   loginUser,
+  verifyMfaLogin,
   refreshSession,
   logoutSession
 } = require('../auth/service');
