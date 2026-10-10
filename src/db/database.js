@@ -40,6 +40,8 @@ function initDatabase(dbPath = process.env.DATABASE_URL || ':memory:') {
       id TEXT PRIMARY KEY,
       email TEXT UNIQUE NOT NULL COLLATE NOCASE,
       password_hash TEXT NOT NULL,
+      mfa_enabled INTEGER NOT NULL DEFAULT 0,
+      mfa_secret TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -80,7 +82,42 @@ function initDatabase(dbPath = process.env.DATABASE_URL || ':memory:') {
     );
 
     CREATE INDEX IF NOT EXISTS idx_consumed_tokens_hash ON consumed_tokens (token_hash);
+
+    CREATE TABLE IF NOT EXISTS recovery_codes (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      code_hash TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_recovery_codes_user ON recovery_codes (user_id);
+
+    CREATE TABLE IF NOT EXISTS mfa_attempts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      attempted_at TEXT NOT NULL,
+      success INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mfa_attempts_user_time ON mfa_attempts (user_id, attempted_at);
   `);
+
+  // Migration helper: Ensure existing databases add mfa columns if needed
+  try {
+    const columns = db.prepare('PRAGMA table_info(users)').all();
+    const colNames = columns.map((c) => c.name);
+    if (!colNames.includes('mfa_enabled')) {
+      db.exec('ALTER TABLE users ADD COLUMN mfa_enabled INTEGER NOT NULL DEFAULT 0;');
+    }
+    if (!colNames.includes('mfa_secret')) {
+      db.exec('ALTER TABLE users ADD COLUMN mfa_secret TEXT;');
+    }
+  } catch {
+    // Ignore migration error if already present
+  }
 
   dbInstance = db;
   return dbInstance;
