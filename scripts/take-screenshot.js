@@ -4,10 +4,8 @@ const path = require('path');
 const http = require('http');
 
 const PORT = 3000;
-const OUTPUT_DIR = path.join(__dirname, '..', 'docs', 'screenshots', 'phase-1');
-const OUTPUT_FILE = path.join(OUTPUT_DIR, 'signin.png');
+const PHASE2_DIR = path.join(__dirname, '..', 'docs', 'screenshots', 'phase-2');
 
-// Find chrome or edge path
 function getBrowserPath() {
   const possiblePaths = [
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
@@ -42,9 +40,31 @@ async function waitForServer(url, timeoutMs = 10000) {
   throw new Error('Server timeout');
 }
 
+async function captureUrl(browserPath, url, outputFile) {
+  await new Promise((resolve, reject) => {
+    const browser = spawn(
+      browserPath,
+      [
+        '--headless=new',
+        '--disable-gpu',
+        `--screenshot=${outputFile}`,
+        '--window-size=1280,840',
+        url
+      ],
+      { stdio: 'inherit' }
+    );
+
+    browser.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`Browser exited with code ${code}`));
+    });
+  });
+  console.log(`Saved screenshot: ${outputFile}`);
+}
+
 async function run() {
-  if (!fs.existsSync(OUTPUT_DIR)) {
-    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+  if (!fs.existsSync(PHASE2_DIR)) {
+    fs.mkdirSync(PHASE2_DIR, { recursive: true });
   }
 
   const browserPath = getBrowserPath();
@@ -62,28 +82,21 @@ async function run() {
 
   try {
     await waitForServer(`http://localhost:${PORT}`);
-    console.log('Server is responsive. Capturing screenshot...');
+    console.log('Server is responsive. Capturing Phase 2 screenshots...');
 
-    await new Promise((resolve, reject) => {
-      const browser = spawn(
-        browserPath,
-        [
-          '--headless=new',
-          '--disable-gpu',
-          `--screenshot=${OUTPUT_FILE}`,
-          '--window-size=1280,820',
-          `http://localhost:${PORT}`
-        ],
-        { stdio: 'inherit' }
-      );
+    await captureUrl(
+      browserPath,
+      `http://localhost:${PORT}/?view=mfa-verify`,
+      path.join(PHASE2_DIR, 'mfa-verify.png')
+    );
 
-      browser.on('close', (code) => {
-        if (code === 0) resolve();
-        else reject(new Error(`Browser exited with code ${code}`));
-      });
-    });
+    await captureUrl(
+      browserPath,
+      `http://localhost:${PORT}/?view=mfa-setup`,
+      path.join(PHASE2_DIR, 'mfa-setup.png')
+    );
 
-    console.log(`Screenshot saved successfully: ${OUTPUT_FILE}`);
+    console.log('All Phase 2 screenshots successfully captured!');
   } finally {
     serverProcess.kill('SIGTERM');
   }

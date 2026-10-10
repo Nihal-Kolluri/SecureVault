@@ -665,4 +665,31 @@ async function handleLogout() {
 // Initialize on DOM load
 window.addEventListener('DOMContentLoaded', () => {
   initSixBoxes();
+
+  // Query parameter handling for UI previews and documentation screenshots
+  const params = new URLSearchParams(window.location.search);
+  const view = params.get('view');
+  if (view === 'mfa-verify') {
+    showMfaVerification('preview_mfa_token');
+  } else if (view === 'mfa-setup') {
+    // Generate dummy QR and setup state for visual documentation
+    sessionState.currentRecoveryCodes = [
+      'A7K2-9LP4', 'M4D8-2WJ9', 'R3X7-5QP1', 'H8V2-6ZN3',
+      'C9B1-4TK8', 'E2F6-8YM5', 'P5J3-7LR2', 'K1W9-3HD6'
+    ];
+    document.getElementById('signInForm').classList.add('hidden');
+    document.getElementById('authTabs').style.display = 'none';
+    const setupView = document.getElementById('mfaSetupView');
+    setupView.classList.remove('hidden');
+    document.getElementById('mfaSecretCode').textContent = 'JBSWY3DPEHPK3PXP';
+    document.getElementById('mfaQrImage').src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="white"/><rect x="10" y="10" width="30" height="30" fill="black"/><rect x="60" y="10" width="30" height="30" fill="black"/><rect x="10" y="60" width="30" height="30" fill="black"/><rect x="45" y="45" width="10" height="10" fill="black"/><rect x="70" y="70" width="20" height="20" fill="black"/></svg>';
+    const grid = document.getElementById('recoveryCodesGrid');
+    grid.innerHTML = '';
+    sessionState.currentRecoveryCodes.forEach((code) => {
+      const tag = document.createElement('div');
+      tag.className = 'recovery-code-tag';
+      tag.textContent = code;
+      grid.appendChild(tag);
+    });
+  }
 });
