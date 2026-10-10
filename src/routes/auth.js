@@ -132,6 +132,120 @@ router.post('/logout', async (req, res) => {
 });
 
 /**
+ * POST /api/auth/mfa/verify
+ * Second step in authentication for users with MFA enabled.
+ */
+router.post('/mfa/verify', async (req, res) => {
+  try {
+    const { mfaToken, code, recoveryCode } = req.body || {};
+    const ipAddress = req.ip || req.socket.remoteAddress;
+    const userAgent = req.headers['user-agent'] || null;
+
+    const result = await verifyMfaLogin({
+      mfaToken,
+      code,
+      recoveryCode,
+      ipAddress,
+      userAgent
+    });
+
+    setAuthCookies(res, result.accessToken, result.refreshToken);
+
+    return res.status(200).json(result);
+  } catch (err) {
+    return res.status(err.statusCode || 401).json({
+      error: err.message || 'Invalid authentication code.'
+    });
+  }
+});
+
+/**
+ * POST /api/auth/mfa/setup
+ * Generates TOTP secret, QR code, and emergency recovery codes for authenticated user.
+ */
+router.post('/mfa/setup', requireAuth, async (req, res) => {
+  try {
+    const { generateTotpEnrollment, generateRecoveryCodes, generateMfaSetupToken } = require('../auth/mfa');
+    const { secret, otpAuthUrl, qrCodeDataUrl } = await generateTotpEnrollment(req.user.email);
+    const recoveryCodes = generateRecoveryCodes(8);
+    const setupToken = generateMfaSetupToken(req.user.id, secret, recoveryCodes);
+
+    return res.status(200).json({
+      secret,
+      otpAuthUrl,
+      qrCode: qrCodeDataUrl,
+      recoveryCodes,
+      setupToken
+    });
+  } catch (err) {
+    return res.status(500).json({
+      error: 'Failed to initiate MFA setup.'
+    });
+  }
+});
+
+/**
+ * POST /api/auth/mfa/confirm
+ * Validates initial code and enables MFA on the user account.
+ */
+router.post('/mfa/confirm', requireAuth, async (req, res) => {
+  try {
+    const { confirmMfaEnrollment } = require('../auth/mfa');
+    const { setupToken, code } = req.body || {};
+
+    await confirmMfaEnrollment(req.user.id, setupToken, code);
+
+    return res.status(200).json({
+      message: 'Two-factor authentication successfully enabled.'
+    });
+  } catch (err) {
+    return res.status(err.statusCode || 400).json({
+      error: err.message || 'Failed to confirm MFA setup.'
+    });
+  }
+});
+
+/**
+ * POST /api/auth/mfa/disable
+ * Disables MFA for the user account.
+ */
+router.post('/mfa/disable', requireAuth, (req, res) => {
+  try {
+    const { disableMfa } = require('../auth/mfa');
+    disableMfa(req.user.id);
+
+    return res.status(200).json({
+      message: 'Two-factor authentication has been disabled.'
+    });
+  } catch (err) {
+    return res.status(500).json({
+      error: 'Failed to disable MFA.'
+    });
+  }
+});
+
+/**
+ * GET /api/auth/mfa/status
+ * Returns current MFA status and remaining recovery code count.
+ */
+router.get('/mfa/status', requireAuth, (req, res) => {
+  try {
+    const { getRemainingRecoveryCodesCount } = require('../auth/mfa');
+    const { getUserById } = require('../auth/service');
+    const user = getUserById(req.user.id);
+
+    return res.status(200).json({
+      mfaEnabled: user ? user.mfaEnabled : false,
+      remainingRecoveryCodes: user && user.mfaEnabled ? getRemainingRecoveryCodesCount(req.user.id) : 0
+    });
+  } catch (err) {
+    return res.status(500).json({
+      error: 'Failed to retrieve MFA status.'
+    });
+  }
+});
+
+/**
  * GET /api/auth/me
  * Protected endpoint returning active authenticated user identity.
  */

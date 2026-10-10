@@ -12,6 +12,15 @@ const {
   hashToken,
   getRefreshTokenExpiresAt
 } = require('./tokens');
+const {
+  generateMfaPendingToken,
+  verifyMfaPendingToken,
+  getRecentMfaFailures,
+  recordMfaAttempt,
+  verifyTotpCode,
+  verifyAndConsumeRecoveryCode,
+  MAX_MFA_FAILURES
+} = require('./mfa');
 
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_WINDOW_MINUTES = 15;
@@ -164,10 +173,99 @@ async function loginUser({ email, password, ipAddress = null, userAgent = null }
     throw error;
   }
 
-  // Record successful login
+  // Record successful password authentication
   recordLoginAttempt(normalizedEmail, true, ipAddress);
 
+  // If user has 2FA / MFA enabled, require MFA step
+  if (user.mfa_enabled === 1) {
+    const mfaToken = generateMfaPendingToken({ id: user.id, email: user.email });
+    return {
+      mfaRequired: true,
+      mfaToken,
+      user: {
+        id: user.id,
+        email: user.email
+      }
+    };
+  }
+
   // Generate tokens & session
+  const sessionId = crypto.randomUUID();
+  const refreshToken = generateRefreshToken();
+  const tokenHash = hashToken(refreshToken);
+  const expiresAt = getRefreshTokenExpiresAt();
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    INSERT INTO sessions (id, user_id, refresh_token_hash, user_agent, ip_address, expires_at, created_at, last_used_at, is_revoked)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+  `).run(sessionId, user.id, tokenHash, userAgent, ipAddress, expiresAt, now, now);
+
+  const accessToken = generateAccessToken({ id: user.id, email: user.email });
+
+  return {
+    mfaRequired: false,
+    accessToken,
+    refreshToken,
+    user: {
+      id: user.id,
+      email: user.email
+    }
+  };
+}
+
+/**
+ * Completes MFA authentication step for users with 2FA enabled.
+ * Enforces MFA attempt limits and supports both TOTP and recovery codes.
+ * @param {object} params
+ * @param {string} params.mfaToken
+ * @param {string} [params.code]
+ * @param {string} [params.recoveryCode]
+ * @param {string} [params.ipAddress]
+ * @param {string} [params.userAgent]
+ * @returns {Promise<{ accessToken: string, refreshToken: string, user: { id: string, email: string } }>}
+ */
+async function verifyMfaLogin({ mfaToken, code, recoveryCode, ipAddress = null, userAgent = null }) {
+  const pendingUser = verifyMfaPendingToken(mfaToken);
+
+  // Check MFA attempt limits
+  const failures = getRecentMfaFailures(pendingUser.id);
+  if (failures >= MAX_MFA_FAILURES) {
+    recordMfaAttempt(pendingUser.id, false);
+    const error = new Error('Too many failed MFA attempts. Please try again later.');
+    error.statusCode = 429;
+    throw error;
+  }
+
+  const db = getDatabase();
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(pendingUser.id);
+  if (!user || user.mfa_enabled !== 1) {
+    const error = new Error('Invalid MFA state.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  let verified = false;
+
+  if (recoveryCode) {
+    // Attempt recovery code verification
+    verified = verifyAndConsumeRecoveryCode(user.id, recoveryCode);
+  } else if (code) {
+    // Attempt TOTP code verification
+    verified = await verifyTotpCode(user.mfa_secret, code);
+  }
+
+  if (!verified) {
+    recordMfaAttempt(user.id, false);
+    const error = new Error('Invalid authentication code.');
+    error.statusCode = 401;
+    throw error;
+  }
+
+  // Record successful MFA verification
+  recordMfaAttempt(user.id, true);
+
+  // Issue full session & tokens
   const sessionId = crypto.randomUUID();
   const refreshToken = generateRefreshToken();
   const tokenHash = hashToken(refreshToken);
@@ -186,7 +284,8 @@ async function loginUser({ email, password, ipAddress = null, userAgent = null }
     refreshToken,
     user: {
       id: user.id,
-      email: user.email
+      email: user.email,
+      mfaEnabled: true
     }
   };
 }
@@ -301,7 +400,14 @@ async function logoutSession(refreshToken) {
  */
 function getUserById(userId) {
   const db = getDatabase();
-  return db.prepare('SELECT id, email, created_at FROM users WHERE id = ?').get(userId);
+  const row = db.prepare('SELECT id, email, mfa_enabled, created_at FROM users WHERE id = ?').get(userId);
+  if (!row) return null;
+  return {
+    id: row.id,
+    email: row.email,
+    mfaEnabled: Boolean(row.mfa_enabled),
+    created_at: row.created_at
+  };
 }
 
 module.exports = {
@@ -311,6 +417,7 @@ module.exports = {
   getRecentFailedAttempts,
   registerUser,
   loginUser,
+  verifyMfaLogin,
   refreshSession,
   logoutSession,
   getUserById
