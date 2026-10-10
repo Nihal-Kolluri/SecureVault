@@ -1,6 +1,6 @@
 {
   "name": "securevault",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "SecureVault - High-security encrypted digital vault and application",
   "main": "src/index.js",
   "scripts": {
@@ -23,7 +23,9 @@
     "cookie-parser": "^1.4.7",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "otplib": "^13.5.0",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "supertest": "^7.0.0"
