@@ -40,6 +40,7 @@ function initDatabase(dbPath = process.env.DATABASE_URL || ':memory:') {
       id TEXT PRIMARY KEY,
       email TEXT UNIQUE NOT NULL COLLATE NOCASE,
       password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'user',
       mfa_enabled INTEGER NOT NULL DEFAULT 0,
       mfa_secret TEXT,
       created_at TEXT NOT NULL,
@@ -103,12 +104,41 @@ function initDatabase(dbPath = process.env.DATABASE_URL || ':memory:') {
     );
 
     CREATE INDEX IF NOT EXISTS idx_mfa_attempts_user_time ON mfa_attempts (user_id, attempted_at);
+
+    CREATE TABLE IF NOT EXISTS vault_items (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      encrypted_data TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_vault_items_user ON vault_items (user_id);
+
+    CREATE TABLE IF NOT EXISTS item_shares (
+      id TEXT PRIMARY KEY,
+      item_id TEXT NOT NULL,
+      shared_with_user_id TEXT NOT NULL,
+      permission TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (item_id) REFERENCES vault_items (id) ON DELETE CASCADE,
+      FOREIGN KEY (shared_with_user_id) REFERENCES users (id) ON DELETE CASCADE,
+      UNIQUE (item_id, shared_with_user_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_item_shares_user ON item_shares (shared_with_user_id);
+    CREATE INDEX IF NOT EXISTS idx_item_shares_item ON item_shares (item_id);
   `);
 
-  // Migration helper: Ensure existing databases add mfa columns if needed
+  // Migration helper: Ensure existing databases add missing columns if needed
   try {
     const columns = db.prepare('PRAGMA table_info(users)').all();
     const colNames = columns.map((c) => c.name);
+    if (!colNames.includes('role')) {
+      db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user';");
+    }
     if (!colNames.includes('mfa_enabled')) {
       db.exec('ALTER TABLE users ADD COLUMN mfa_enabled INTEGER NOT NULL DEFAULT 0;');
     }
