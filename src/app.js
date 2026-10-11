@@ -1,40 +1,53 @@
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const path = require('path');
+const { createGatewayMiddleware } = require('./gateway/gateway');
+const { authRateLimiter, apiRateLimiter } = require('./gateway/rate-limiter');
 const authRouter = require('./routes/auth');
+const vaultRouter = require('./routes/vault');
+const adminRouter = require('./routes/admin');
 const { getVaultStatus } = require('./status');
 
-function createApp() {
+/**
+ * Creates and configures the Express application with Gateway, RBAC, and rate limiting.
+ * @param {object} [options]
+ * @param {boolean|string[]} [options.trustProxy=false]
+ * @param {boolean} [options.enableRateLimit=true]
+ * @returns {express.Application}
+ */
+function createApp(options = {}) {
   const app = express();
 
-  // Standard middleware
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  // 1. Gateway middleware stack (Request ID, IP anti-spoofing, Security headers)
+  app.use(createGatewayMiddleware(options));
+
+  // 2. Body parsing and cookies
+  app.use(express.json({ limit: '1mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '1mb' }));
   app.use(cookieParser());
 
-  // Basic security headers
-  app.use((req, res, next) => {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('X-XSS-Protection', '1; mode=block');
-    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-    next();
-  });
-
-  // Serve static UI assets
+  // 3. Static assets
   app.use(express.static(path.join(__dirname, 'public')));
 
-  // Health / Status endpoint
+  // 4. Health / Status endpoint
   app.get('/api/status', (req, res) => {
     res.json(getVaultStatus());
   });
 
-  // Auth API router
-  app.use('/api/auth', authRouter);
+  // 5. Rate limiting & API routers
+  const rateLimitEnabled = options.enableRateLimit !== false;
+  if (rateLimitEnabled) {
+    app.use('/api/auth', authRateLimiter, authRouter);
+    app.use('/api/vault', apiRateLimiter, vaultRouter);
+    app.use('/api/admin', apiRateLimiter, adminRouter);
+  } else {
+    app.use('/api/auth', authRouter);
+    app.use('/api/vault', vaultRouter);
+    app.use('/api/admin', adminRouter);
+  }
 
-  // Fallback to index.html for frontend routing
+  // 6. Frontend fallback handler
   app.use((req, res) => {
-    // If asking for API, send 404
     if (req.path.startsWith('/api')) {
       return res.status(404).json({ error: 'Endpoint not found' });
     }

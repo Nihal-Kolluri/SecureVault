@@ -15,6 +15,7 @@ function generateAccessToken(user) {
   const payload = {
     sub: user.id,
     email: user.email,
+    role: user.role || 'user',
     jti: crypto.randomUUID()
   };
 

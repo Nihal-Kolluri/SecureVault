@@ -91,7 +91,7 @@ function recordLoginAttempt(email, success, ipAddress = null) {
  * @param {string} params.password
  * @returns {Promise<{ id: string, email: string, createdAt: string }>}
  */
-async function registerUser({ email, password }) {
+async function registerUser({ email, password, role = 'user' }) {
   if (!isValidEmail(email)) {
     const error = new Error('Invalid email address format.');
     error.statusCode = 400;
@@ -115,18 +115,22 @@ async function registerUser({ email, password }) {
     throw error;
   }
 
+  const validRoles = ['user', 'manager', 'admin'];
+  const userRole = validRoles.includes(role) ? role : 'user';
+
   const passwordHash = await hashPassword(password);
   const now = new Date().toISOString();
   const userId = crypto.randomUUID();
 
   db.prepare(`
-    INSERT INTO users (id, email, password_hash, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(userId, normalizedEmail, passwordHash, now, now);
+    INSERT INTO users (id, email, password_hash, role, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(userId, normalizedEmail, passwordHash, userRole, now, now);
 
   return {
     id: userId,
     email: normalizedEmail,
+    role: userRole,
     createdAt: now
   };
 }
@@ -201,7 +205,7 @@ async function loginUser({ email, password, ipAddress = null, userAgent = null }
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
   `).run(sessionId, user.id, tokenHash, userAgent, ipAddress, expiresAt, now, now);
 
-  const accessToken = generateAccessToken({ id: user.id, email: user.email });
+  const accessToken = generateAccessToken({ id: user.id, email: user.email, role: user.role || 'user' });
 
   return {
     mfaRequired: false,
@@ -209,7 +213,8 @@ async function loginUser({ email, password, ipAddress = null, userAgent = null }
     refreshToken,
     user: {
       id: user.id,
-      email: user.email
+      email: user.email,
+      role: user.role || 'user'
     }
   };
 }
@@ -223,7 +228,7 @@ async function loginUser({ email, password, ipAddress = null, userAgent = null }
  * @param {string} [params.recoveryCode]
  * @param {string} [params.ipAddress]
  * @param {string} [params.userAgent]
- * @returns {Promise<{ accessToken: string, refreshToken: string, user: { id: string, email: string } }>}
+ * @returns {Promise<{ accessToken: string, refreshToken: string, user: { id: string, email: string, role: string, mfaEnabled: boolean } }>}
  */
 async function verifyMfaLogin({ mfaToken, code, recoveryCode, ipAddress = null, userAgent = null }) {
   const pendingUser = verifyMfaPendingToken(mfaToken);
@@ -277,7 +282,7 @@ async function verifyMfaLogin({ mfaToken, code, recoveryCode, ipAddress = null, 
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
   `).run(sessionId, user.id, tokenHash, userAgent, ipAddress, expiresAt, now, now);
 
-  const accessToken = generateAccessToken({ id: user.id, email: user.email });
+  const accessToken = generateAccessToken({ id: user.id, email: user.email, role: user.role || 'user' });
 
   return {
     accessToken,
@@ -285,6 +290,7 @@ async function verifyMfaLogin({ mfaToken, code, recoveryCode, ipAddress = null, 
     user: {
       id: user.id,
       email: user.email,
+      role: user.role || 'user',
       mfaEnabled: true
     }
   };
@@ -400,11 +406,12 @@ async function logoutSession(refreshToken) {
  */
 function getUserById(userId) {
   const db = getDatabase();
-  const row = db.prepare('SELECT id, email, mfa_enabled, created_at FROM users WHERE id = ?').get(userId);
+  const row = db.prepare('SELECT id, email, role, mfa_enabled, created_at FROM users WHERE id = ?').get(userId);
   if (!row) return null;
   return {
     id: row.id,
     email: row.email,
+    role: row.role || 'user',
     mfaEnabled: Boolean(row.mfa_enabled),
     created_at: row.created_at
   };
