@@ -7,7 +7,12 @@ let sessionState = {
   countdownInterval: null,
   mfaPendingToken: null,
   pendingSetupToken: null,
-  currentRecoveryCodes: []
+  currentRecoveryCodes: [],
+  vaultItems: [],
+  currentCategory: 'all',
+  searchQuery: '',
+  revealedSecrets: {},
+  autoMaskTimers: {}
 };
 
 // Switch between Sign In and Register tabs
@@ -393,6 +398,9 @@ function setSession(data) {
   document.getElementById('mfaVerifyView').classList.add('hidden');
   document.getElementById('mfaSetupView').classList.add('hidden');
 
+  const wrapper = document.querySelector('.auth-wrapper');
+  if (wrapper) wrapper.classList.add('vault-active');
+
   const dashboard = document.getElementById('vaultDashboard');
   dashboard.classList.remove('hidden');
   document.getElementById('dashUserEmail').textContent = data.user.email;
@@ -400,6 +408,7 @@ function setSession(data) {
   updateMfaStatusUI(data.user.mfaEnabled);
   startJwtCountdown();
   fetchMfaStatus();
+  fetchVaultItems();
   showAlert('Authenticated securely with 15-minute sliding session.', 'success');
 }
 
@@ -632,6 +641,11 @@ async function handleLogout() {
     clearInterval(sessionState.countdownInterval);
   }
 
+  // Clear all auto-mask timers
+  Object.values(sessionState.autoMaskTimers).forEach((timer) => clearInterval(timer));
+  sessionState.autoMaskTimers = {};
+  sessionState.revealedSecrets = {};
+
   try {
     await fetch('/api/auth/logout', {
       method: 'POST',
@@ -650,8 +664,16 @@ async function handleLogout() {
     countdownInterval: null,
     mfaPendingToken: null,
     pendingSetupToken: null,
-    currentRecoveryCodes: []
+    currentRecoveryCodes: [],
+    vaultItems: [],
+    currentCategory: 'all',
+    searchQuery: '',
+    revealedSecrets: {},
+    autoMaskTimers: {}
   };
+
+  const wrapper = document.querySelector('.auth-wrapper');
+  if (wrapper) wrapper.classList.remove('vault-active');
 
   document.getElementById('vaultDashboard').classList.add('hidden');
   document.getElementById('mfaVerifyView').classList.add('hidden');
@@ -662,6 +684,591 @@ async function handleLogout() {
   showAlert('Vault session terminated securely.', 'success');
 }
 
+/* -------------------------------------------------------------------------- */
+/*                        Vault Items & Secrets Screen                        */
+/* -------------------------------------------------------------------------- */
+
+async function fetchVaultItems() {
+  const container = document.getElementById('vaultItemsList');
+  if (!sessionState.accessToken) return;
+
+  try {
+    const res = await fetch('/api/vault/items', {
+      headers: { 'Authorization': `Bearer ${sessionState.accessToken}` }
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      sessionState.vaultItems = data.items || [];
+      const countEl = document.getElementById('vaultItemCount');
+      if (countEl) countEl.textContent = sessionState.vaultItems.length;
+
+      // Update KEK metric if available
+      if (sessionState.vaultItems.length > 0) {
+        const kekEl = document.getElementById('kekMetric');
+        if (kekEl) kekEl.textContent = sessionState.vaultItems[0].kek_version.toUpperCase();
+      }
+
+      renderVaultItems();
+    } else {
+      container.innerHTML = '<div class="vault-empty-state">Failed to load vault items.</div>';
+    }
+  } catch {
+    container.innerHTML = '<div class="vault-empty-state">Network error connecting to vault API.</div>';
+  }
+}
+
+function setCategoryFilter(category) {
+  sessionState.currentCategory = category;
+  document.querySelectorAll('.cat-pill').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.cat === category);
+  });
+  renderVaultItems();
+}
+
+function filterVaultItems() {
+  const input = document.getElementById('vaultSearchInput');
+  sessionState.searchQuery = input ? input.value.trim().toLowerCase() : '';
+  renderVaultItems();
+}
+
+function renderVaultItems() {
+  const container = document.getElementById('vaultItemsList');
+  if (!container) return;
+
+  let items = sessionState.vaultItems;
+
+  // Filter by category
+  if (sessionState.currentCategory !== 'all') {
+    items = items.filter((item) => (item.category || 'secret') === sessionState.currentCategory);
+  }
+
+  // Filter by search query
+  if (sessionState.searchQuery) {
+    items = items.filter((item) => item.title.toLowerCase().includes(sessionState.searchQuery));
+  }
+
+  if (items.length === 0) {
+    container.innerHTML = `
+      <div class="vault-empty-state">
+        <svg style="width:36px;height:36px;color:var(--text-dim);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+        <span>No encrypted secrets stored yet.</span>
+        <button type="button" class="action-btn secondary" style="padding:6px 14px;font-size:12px;" onclick="openCreateItemModal()">+ Store First Secret</button>
+      </div>
+    `;
+    return;
+  }
+
+  const categoryIcons = {
+    api_key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>',
+    password: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>',
+    note: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>',
+    certificate: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><circle cx="12" cy="8" r="7"></circle><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"></polyline></svg>'
+  };
+
+  container.innerHTML = items.map((item) => {
+    const isRevealed = Boolean(sessionState.revealedSecrets[item.id]);
+    const revealedVal = sessionState.revealedSecrets[item.id] || '';
+    const displayValue = isRevealed ? escapeHtml(revealedVal) : '••••••••••••••••••••••••';
+    const isOwner = item.access_level === 'owner';
+    const accessBadge = isOwner 
+      ? '<span class="badge-owner">OWNER</span>' 
+      : `<span class="badge-shared">${item.access_level ? item.access_level.toUpperCase() : 'SHARED'}</span>`;
+
+    const icon = categoryIcons[item.category] || categoryIcons.password;
+
+    return `
+      <article class="vault-item-card" id="card-${item.id}">
+        <div class="item-card-header">
+          <div class="item-title-group">
+            <div class="item-icon-tag">${icon}</div>
+            <span class="item-title">${escapeHtml(item.title)}</span>
+          </div>
+          <div class="item-badges">
+            ${accessBadge}
+            <span class="badge-version">v${item.current_version || 1}</span>
+          </div>
+        </div>
+
+        <!-- Masked Secret Box -->
+        <div class="masked-secret-box">
+          <div class="masked-value ${isRevealed ? 'revealed' : ''}" id="secret-val-${item.id}">${displayValue}</div>
+          <div class="secret-controls">
+            ${isRevealed ? `<span class="auto-hide-pill" id="autohide-${item.id}">Auto-mask 30s</span>` : ''}
+            <button 
+              type="button" 
+              class="icon-btn ${isRevealed ? 'revealed' : ''}" 
+              id="reveal-btn-${item.id}"
+              onclick="toggleRevealSecret('${item.id}')"
+              title="${isRevealed ? 'Hide secret' : 'Reveal secret'}"
+            >
+              ${isRevealed ? '🔒 Mask' : '👁️ Reveal'}
+            </button>
+            <button 
+              type="button" 
+              class="icon-btn copy-btn" 
+              id="copy-btn-${item.id}"
+              onclick="copySecretToClipboard('${item.id}', this)"
+              title="Copy secret to clipboard"
+            >
+              📋 Copy
+            </button>
+          </div>
+        </div>
+
+        <div class="item-card-footer">
+          <span class="card-meta">Updated ${new Date(item.updated_at || item.created_at).toLocaleDateString()} • KEK: ${item.kek_version}</span>
+          <div class="card-actions">
+            <button type="button" class="icon-btn" onclick="openVersionsModal('${item.id}', '${escapeJs(item.title)}')">
+              🕒 History
+            </button>
+            ${isOwner ? `
+              <button type="button" class="icon-btn" onclick="openShareModal('${item.id}', '${escapeJs(item.title)}')">
+                👥 Share
+              </button>
+            ` : ''}
+            ${(isOwner || item.access_level === 'write') ? `
+              <button type="button" class="icon-btn" onclick="openEditItemModal('${item.id}')">
+                ✏️ Edit
+              </button>
+            ` : ''}
+            ${isOwner ? `
+              <button type="button" class="icon-btn" style="color:#f87171;" onclick="handleDeleteItem('${item.id}')">
+                🗑️
+              </button>
+            ` : ''}
+          </div>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function escapeJs(str) {
+  if (!str) return '';
+  return String(str).replace(/'/g, "\\'").replace(/"/g, '\\"');
+}
+
+/* -------------------------------------------------------------------------- */
+/*                       Masked / Reveal / Copy Behavior                      */
+/* -------------------------------------------------------------------------- */
+
+async function toggleRevealSecret(itemId) {
+  const valEl = document.getElementById(`secret-val-${itemId}`);
+  const btnEl = document.getElementById(`reveal-btn-${itemId}`);
+  if (!valEl || !btnEl) return;
+
+  // If already revealed -> mask it
+  if (sessionState.revealedSecrets[itemId]) {
+    delete sessionState.revealedSecrets[itemId];
+    if (sessionState.autoMaskTimers[itemId]) {
+      clearInterval(sessionState.autoMaskTimers[itemId]);
+      delete sessionState.autoMaskTimers[itemId];
+    }
+    renderVaultItems();
+    return;
+  }
+
+  // Fetch and decrypt
+  try {
+    btnEl.textContent = '...';
+    const res = await fetch(`/api/vault/items/${itemId}`, {
+      headers: { 'Authorization': `Bearer ${sessionState.accessToken}` }
+    });
+
+    if (!res.ok) {
+      throw new Error('Failed to decrypt secret');
+    }
+
+    const data = await res.json();
+    sessionState.revealedSecrets[itemId] = data.secret;
+
+    // Start 30s auto-mask timer
+    let remaining = 30;
+    if (sessionState.autoMaskTimers[itemId]) {
+      clearInterval(sessionState.autoMaskTimers[itemId]);
+    }
+
+    sessionState.autoMaskTimers[itemId] = setInterval(() => {
+      remaining--;
+      const pill = document.getElementById(`autohide-${itemId}`);
+      if (pill) pill.textContent = `Auto-mask ${remaining}s`;
+
+      if (remaining <= 0) {
+        clearInterval(sessionState.autoMaskTimers[itemId]);
+        delete sessionState.autoMaskTimers[itemId];
+        delete sessionState.revealedSecrets[itemId];
+        renderVaultItems();
+      }
+    }, 1000);
+
+    renderVaultItems();
+  } catch (err) {
+    showAlert(err.message, 'error');
+    renderVaultItems();
+  }
+}
+
+async function copySecretToClipboard(itemId, btn) {
+  let secret = sessionState.revealedSecrets[itemId];
+
+  if (!secret) {
+    try {
+      const res = await fetch(`/api/vault/items/${itemId}`, {
+        headers: { 'Authorization': `Bearer ${sessionState.accessToken}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        secret = data.secret;
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  if (!secret) {
+    showAlert('Unable to decrypt secret for copying.', 'error');
+    return;
+  }
+
+  // Copy to clipboard
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(secret);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = secret;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+
+    const origText = btn.innerHTML;
+    btn.innerHTML = '✓ Copied!';
+    btn.style.color = '#34d399';
+    btn.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+
+    setTimeout(() => {
+      btn.innerHTML = origText;
+      btn.style.color = '';
+      btn.style.borderColor = '';
+    }, 2000);
+  } catch {
+    showAlert('Clipboard write permission denied.', 'error');
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                       Create / Edit Item Modal Handlers                    */
+/* -------------------------------------------------------------------------- */
+
+function openCreateItemModal() {
+  document.getElementById('editItemId').value = '';
+  document.getElementById('itemModalTitle').textContent = 'Store Encrypted Secret';
+  document.getElementById('itemTitleInput').value = '';
+  document.getElementById('itemCategorySelect').value = 'api_key';
+  document.getElementById('itemSecretInput').value = '';
+  document.getElementById('vaultItemModal').classList.remove('hidden');
+}
+
+function openEditItemModal(itemId) {
+  const item = sessionState.vaultItems.find((i) => i.id === itemId);
+  if (!item) return;
+
+  document.getElementById('editItemId').value = item.id;
+  document.getElementById('itemModalTitle').textContent = `Update Secret: ${item.title} (New Version)`;
+  document.getElementById('itemTitleInput').value = item.title;
+  document.getElementById('itemCategorySelect').value = item.category || 'api_key';
+  document.getElementById('itemSecretInput').value = sessionState.revealedSecrets[itemId] || '';
+  document.getElementById('vaultItemModal').classList.remove('hidden');
+}
+
+function closeItemModal() {
+  document.getElementById('vaultItemModal').classList.add('hidden');
+}
+
+function generateRandomSecret() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-_=+[]{}';
+  let result = '';
+  const cryptoObj = window.crypto || window.msCrypto;
+  const values = new Uint32Array(24);
+  cryptoObj.getRandomValues(values);
+  for (let i = 0; i < 24; i++) {
+    result += chars[values[i] % chars.length];
+  }
+  document.getElementById('itemSecretInput').value = result;
+}
+
+async function handleSaveVaultItem(event) {
+  event.preventDefault();
+  const itemId = document.getElementById('editItemId').value;
+  const title = document.getElementById('itemTitleInput').value.trim();
+  const category = document.getElementById('itemCategorySelect').value;
+  const secret = document.getElementById('itemSecretInput').value;
+
+  const btn = document.getElementById('saveItemBtn');
+  btn.disabled = true;
+
+  try {
+    const isEdit = Boolean(itemId);
+    const url = isEdit ? `/api/vault/items/${itemId}` : '/api/vault/items';
+    const method = isEdit ? 'PUT' : 'POST';
+
+    const res = await fetch(url, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${sessionState.accessToken}`
+      },
+      body: JSON.stringify({ title, category, secret })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to save vault item.');
+    }
+
+    closeItemModal();
+    showAlert(isEdit ? 'Vault item updated! Created new version.' : 'Encrypted secret stored successfully.', 'success');
+    await fetchVaultItems();
+  } catch (err) {
+    showAlert(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function handleDeleteItem(itemId) {
+  if (!confirm('Are you sure you want to permanently delete this secret and all its version history?')) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/vault/items/${itemId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${sessionState.accessToken}` }
+    });
+
+    if (res.ok) {
+      showAlert('Vault item permanently deleted.', 'success');
+      await fetchVaultItems();
+    } else {
+      const data = await res.json();
+      throw new Error(data.error || 'Failed to delete vault item.');
+    }
+  } catch (err) {
+    showAlert(err.message, 'error');
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                         Version History Modal Handlers                     */
+/* -------------------------------------------------------------------------- */
+
+async function openVersionsModal(itemId, title) {
+  document.getElementById('versionModalItemTitle').textContent = title;
+  const container = document.getElementById('versionsListContainer');
+  container.innerHTML = '<span class="btn-spinner"></span> Loading version history...';
+  document.getElementById('vaultVersionsModal').classList.remove('hidden');
+
+  try {
+    const res = await fetch(`/api/vault/items/${itemId}/versions`, {
+      headers: { 'Authorization': `Bearer ${sessionState.accessToken}` }
+    });
+
+    if (!res.ok) throw new Error('Failed to load version history.');
+    const data = await res.json();
+    const versions = data.versions || [];
+
+    container.innerHTML = versions.map((v) => `
+      <div class="version-row">
+        <div class="version-info">
+          <span class="version-title">Version ${v.version}</span>
+          <span class="version-meta">Created ${new Date(v.created_at).toLocaleString()} • KEK: ${v.kek_version} (${v.algorithm})</span>
+          <div id="v-secret-${v.version}" style="font-family:var(--font-mono);font-size:11.5px;color:#38bdf8;margin-top:4px;"></div>
+        </div>
+        <button 
+          type="button" 
+          class="icon-btn" 
+          onclick="decryptSpecificVersion('${itemId}', ${v.version}, 'v-secret-${v.version}')"
+        >
+          🔍 View & Decrypt
+        </button>
+      </div>
+    `).join('');
+  } catch (err) {
+    container.innerHTML = `<span style="color:#f87171;">${err.message}</span>`;
+  }
+}
+
+async function decryptSpecificVersion(itemId, version, targetElId) {
+  const el = document.getElementById(targetElId);
+  if (!el) return;
+  el.textContent = 'Decrypting...';
+
+  try {
+    const res = await fetch(`/api/vault/items/${itemId}?version=${version}`, {
+      headers: { 'Authorization': `Bearer ${sessionState.accessToken}` }
+    });
+    if (!res.ok) throw new Error('Decryption failed');
+    const data = await res.json();
+    el.textContent = `Payload: ${data.secret}`;
+  } catch (err) {
+    el.textContent = `Error: ${err.message}`;
+  }
+}
+
+function closeVersionsModal() {
+  document.getElementById('vaultVersionsModal').classList.add('hidden');
+}
+
+/* -------------------------------------------------------------------------- */
+/*                            Sharing Modal Handlers                          */
+/* -------------------------------------------------------------------------- */
+
+async function openShareModal(itemId, title) {
+  document.getElementById('shareModalItemTitle').textContent = title;
+  document.getElementById('shareItemId').value = itemId;
+  document.getElementById('shareUserEmail').value = '';
+  document.getElementById('vaultShareModal').classList.remove('hidden');
+  await loadSharesList(itemId);
+}
+
+async function loadSharesList(itemId) {
+  const container = document.getElementById('sharesListContainer');
+  container.innerHTML = '<span>Loading collaborators...</span>';
+
+  try {
+    const res = await fetch(`/api/vault/items/${itemId}/shares`, {
+      headers: { 'Authorization': `Bearer ${sessionState.accessToken}` }
+    });
+    if (!res.ok) throw new Error('Failed to load shares.');
+    const data = await res.json();
+    const shares = data.shares || [];
+
+    if (shares.length === 0) {
+      container.innerHTML = '<span style="color:var(--text-dim);font-size:12px;">No collaborators have been granted access yet.</span>';
+      return;
+    }
+
+    container.innerHTML = shares.map((s) => `
+      <div class="share-row">
+        <div class="share-info">
+          <span class="share-email">${escapeHtml(s.shared_with_email)}</span>
+          <span class="share-permission">Permission: ${s.permission.toUpperCase()}</span>
+        </div>
+        <button 
+          type="button" 
+          class="icon-btn" 
+          style="color:#f87171;" 
+          onclick="handleRevokeShare('${itemId}', '${s.shared_with_user_id}')"
+        >
+          Revoke
+        </button>
+      </div>
+    `).join('');
+  } catch (err) {
+    container.innerHTML = `<span style="color:#f87171;">${err.message}</span>`;
+  }
+}
+
+async function handleAddShare(event) {
+  event.preventDefault();
+  const itemId = document.getElementById('shareItemId').value;
+  const email = document.getElementById('shareUserEmail').value.trim();
+  const permission = document.getElementById('sharePermissionSelect').value;
+
+  try {
+    const res = await fetch(`/api/vault/items/${itemId}/share`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${sessionState.accessToken}`
+      },
+      body: JSON.stringify({ email, permission })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to grant share permission.');
+
+    document.getElementById('shareUserEmail').value = '';
+    showAlert(`Access granted to ${email}.`, 'success');
+    await loadSharesList(itemId);
+  } catch (err) {
+    showAlert(err.message, 'error');
+  }
+}
+
+async function handleRevokeShare(itemId, userId) {
+  try {
+    const res = await fetch(`/api/vault/items/${itemId}/share/${userId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${sessionState.accessToken}` }
+    });
+
+    if (res.ok) {
+      showAlert('Collaborator access revoked.', 'success');
+      await loadSharesList(itemId);
+    } else {
+      const data = await res.json();
+      throw new Error(data.error || 'Failed to revoke access.');
+    }
+  } catch (err) {
+    showAlert(err.message, 'error');
+  }
+}
+
+function closeShareModal() {
+  document.getElementById('vaultShareModal').classList.add('hidden');
+}
+
+/* -------------------------------------------------------------------------- */
+/*                           Key Rotation Handler                             */
+/* -------------------------------------------------------------------------- */
+
+async function handleRotateMasterKey() {
+  if (!confirm('Rotate active Key Encryption Key (KEK)? All stored DEKs will be securely re-wrapped under a new key version.')) {
+    return;
+  }
+
+  try {
+    const newVersion = `kek_v${Date.now()}`;
+    const res = await fetch('/api/vault/rotate-keys', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${sessionState.accessToken}`
+      },
+      body: JSON.stringify({ newVersion })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Key rotation failed.');
+
+    const kekEl = document.getElementById('kekMetric');
+    if (kekEl) kekEl.textContent = data.activeKekVersion.toUpperCase();
+
+    showAlert(`Key rotation successful! Re-wrapped ${data.itemsRotated} item DEKs and ${data.versionsRotated} version DEKs.`, 'success');
+    await fetchVaultItems();
+  } catch (err) {
+    showAlert(err.message, 'error');
+  }
+}
+
 // Initialize on DOM load
 window.addEventListener('DOMContentLoaded', () => {
   initSixBoxes();
@@ -669,10 +1276,10 @@ window.addEventListener('DOMContentLoaded', () => {
   // Query parameter handling for UI previews and documentation screenshots
   const params = new URLSearchParams(window.location.search);
   const view = params.get('view');
+
   if (view === 'mfa-verify') {
     showMfaVerification('preview_mfa_token');
   } else if (view === 'mfa-setup') {
-    // Generate dummy QR and setup state for visual documentation
     sessionState.currentRecoveryCodes = [
       'A7K2-9LP4', 'M4D8-2WJ9', 'R3X7-5QP1', 'H8V2-6ZN3',
       'C9B1-4TK8', 'E2F6-8YM5', 'P5J3-7LR2', 'K1W9-3HD6'
@@ -691,5 +1298,91 @@ window.addEventListener('DOMContentLoaded', () => {
       tag.textContent = code;
       grid.appendChild(tag);
     });
+  } else if (view === 'vault' || view === 'vault-reveal' || view === 'vault-versions') {
+    // Generate populated visual dashboard state for Phase 4 screenshots
+    sessionState.accessToken = 'preview_token';
+    sessionState.user = { id: 'preview-usr', email: 'security.lead@securevault.io', mfaEnabled: true };
+    document.getElementById('signInForm').classList.add('hidden');
+    document.getElementById('authTabs').style.display = 'none';
+
+    const wrapper = document.querySelector('.auth-wrapper');
+    if (wrapper) wrapper.classList.add('vault-active');
+
+    const dashboard = document.getElementById('vaultDashboard');
+    dashboard.classList.remove('hidden');
+    document.getElementById('dashUserEmail').textContent = sessionState.user.email;
+    updateMfaStatusUI(true, 8);
+
+    sessionState.vaultItems = [
+      {
+        id: 'item-aws-prod',
+        title: 'AWS Production Root API Key',
+        category: 'api_key',
+        current_version: 2,
+        access_level: 'owner',
+        kek_version: 'kek_v2',
+        updated_at: new Date().toISOString()
+      },
+      {
+        id: 'item-stripe-key',
+        title: 'Stripe Live Secret Key',
+        category: 'api_key',
+        current_version: 1,
+        access_level: 'owner',
+        kek_version: 'kek_v2',
+        updated_at: new Date(Date.now() - 3600000).toISOString()
+      },
+      {
+        id: 'item-db-pass',
+        title: 'PostgreSQL Primary DB Password',
+        category: 'password',
+        current_version: 3,
+        access_level: 'write',
+        kek_version: 'kek_v2',
+        updated_at: new Date(Date.now() - 86400000).toISOString()
+      },
+      {
+        id: 'item-sec-note',
+        title: 'Hardware Token Recovery Seed Note',
+        category: 'note',
+        current_version: 1,
+        access_level: 'read',
+        kek_version: 'kek_v2',
+        updated_at: new Date(Date.now() - 172800000).toISOString()
+      }
+    ];
+
+    document.getElementById('vaultItemCount').textContent = sessionState.vaultItems.length;
+    document.getElementById('kekMetric').textContent = 'KEK v2';
+
+    if (view === 'vault-reveal') {
+      sessionState.revealedSecrets['item-aws-prod'] = 'DEMO_AWS_PROD_KEY_SECRET_998877_REVEALED';
+    }
+
+    renderVaultItems();
+
+    if (view === 'vault-versions') {
+      document.getElementById('versionModalItemTitle').textContent = 'AWS Production Root API Key';
+      document.getElementById('vaultVersionsModal').classList.remove('hidden');
+      const container = document.getElementById('versionsListContainer');
+      container.innerHTML = `
+        <div class="version-row">
+          <div class="version-info">
+            <span class="version-title">Version 2 (Active)</span>
+            <span class="version-meta">Created ${new Date().toLocaleString()} • KEK: kek_v2 (aes-256-gcm)</span>
+            <div style="font-family:var(--font-mono);font-size:11.5px;color:#38bdf8;margin-top:4px;">Payload: DEMO_AWS_PROD_KEY_SECRET_998877_REVEALED</div>
+          </div>
+          <button type="button" class="icon-btn" style="color:#34d399;border-color:rgba(16,185,129,0.3);">Active</button>
+        </div>
+        <div class="version-row">
+          <div class="version-info">
+            <span class="version-title">Version 1</span>
+            <span class="version-meta">Created ${new Date(Date.now() - 86400000 * 3).toLocaleString()} • KEK: kek_v1 (aes-256-gcm)</span>
+            <div style="font-family:var(--font-mono);font-size:11.5px;color:var(--text-dim);margin-top:4px;">Payload: DEMO_PREVIOUS_KEY_ARCHIVED_V1</div>
+          </div>
+          <button type="button" class="icon-btn">🔍 View</button>
+        </div>
+      `;
+    }
   }
 });
