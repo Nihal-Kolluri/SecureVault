@@ -4,8 +4,8 @@
 function getVaultStatus() {
   return {
     status: 'online',
-    version: '0.3.0',
-    phase: 'Phase 3: Gateway, RBAC and rate limiting',
+    version: '0.4.0',
+    phase: 'Phase 4: Encryption and vault',
     timestamp: new Date().toISOString()
   };
 }
