@@ -236,7 +236,7 @@
         </div>
       </section>
 
-      <!-- Authenticated Vault Dashboard -->
+      <!-- Authenticated Vault Dashboard & Items Screen -->
       <div id="vaultDashboard" class="vault-dashboard hidden">
         <div class="dashboard-header">
           <div class="vault-badge">
@@ -251,9 +251,19 @@
 
         <div class="dashboard-metrics">
           <div class="metric-card">
+            <span class="metric-title">ENVELOPE ENCRYPTION</span>
+            <span class="metric-value" id="kekMetric">KEK v1</span>
+            <span class="metric-sub">AES-256-GCM + 256-bit DEKs</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-title">STORED SECRETS</span>
+            <span class="metric-value" id="vaultItemCount">0</span>
+            <span class="metric-sub">Ciphertext at rest</span>
+          </div>
+          <div class="metric-card">
             <span class="metric-title">ACCESS TOKEN EXPIRY</span>
             <span class="metric-value" id="jwtCountdown">14:59</span>
-            <span class="metric-sub">15-minute sliding window</span>
+            <span class="metric-sub">15m sliding window</span>
           </div>
           <div class="metric-card">
             <span class="metric-title">TWO-FACTOR AUTH</span>
@@ -262,26 +272,185 @@
           </div>
         </div>
 
-        <div class="dashboard-actions">
+        <!-- Quick Top Actions -->
+        <div class="vault-top-actions">
+          <button type="button" class="action-btn primary" onclick="openCreateItemModal()">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Store New Secret
+          </button>
+          <button type="button" class="action-btn secondary" onclick="handleRotateMasterKey()">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 2v6h-6"></path>
+              <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
+              <path d="M3 22v-6h6"></path>
+              <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
+            </svg>
+            Rotate KEK
+          </button>
           <button type="button" class="action-btn secondary" id="mfaSetupBtn" onclick="openMfaSetup()">
-            Configure Two-Factor Authentication (TOTP)
+            Configure 2FA
           </button>
           <button type="button" class="action-btn danger hidden" id="mfaDisableBtn" onclick="handleDisableMfa()">
-            Disable Two-Factor Authentication
-          </button>
-          <button type="button" class="action-btn secondary" onclick="testProtectedEndpoint()">
-            Verify Protected API (/api/auth/me)
-          </button>
-          <button type="button" class="action-btn secondary" onclick="triggerTokenRefresh()">
-            Rotate Refresh Token Now
+            Disable 2FA
           </button>
           <button type="button" class="action-btn danger" onclick="handleLogout()">
-            Lock Vault (Sign Out)
+            Lock Vault
           </button>
         </div>
 
+        <!-- Vault Items Main Section -->
+        <section class="vault-items-section">
+          <div class="vault-filter-bar">
+            <div class="search-wrapper">
+              <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input 
+                type="text" 
+                id="vaultSearchInput" 
+                class="search-input" 
+                placeholder="Search encrypted secrets, keys, credentials..."
+                oninput="filterVaultItems()"
+              >
+            </div>
+            <div class="category-pills" id="categoryPills">
+              <button type="button" class="cat-pill active" data-cat="all" onclick="setCategoryFilter('all')">All</button>
+              <button type="button" class="cat-pill" data-cat="api_key" onclick="setCategoryFilter('api_key')">API Keys</button>
+              <button type="button" class="cat-pill" data-cat="password" onclick="setCategoryFilter('password')">Passwords</button>
+              <button type="button" class="cat-pill" data-cat="note" onclick="setCategoryFilter('note')">Secure Notes</button>
+            </div>
+          </div>
+
+          <!-- Items Container -->
+          <div class="vault-items-list" id="vaultItemsList">
+            <div class="vault-loading-state" id="vaultLoading">
+              <span class="btn-spinner"></span>
+              <span>Loading encrypted vault items...</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- API Output for session debugging -->
         <div class="api-output hidden" id="apiOutput">
           <pre><code id="apiOutputCode"></code></pre>
+        </div>
+      </div>
+
+      <!-- Modal 1: Create / Edit Vault Item -->
+      <div id="vaultItemModal" class="modal-backdrop hidden">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3 class="modal-title" id="itemModalTitle">Store Encrypted Secret</h3>
+            <button type="button" class="modal-close-btn" onclick="closeItemModal()">&times;</button>
+          </div>
+          <form id="vaultItemForm" onsubmit="handleSaveVaultItem(event)">
+            <input type="hidden" id="editItemId" value="">
+            <div class="form-group">
+              <label for="itemTitleInput" class="form-label">Secret Title / Identifier</label>
+              <input 
+                type="text" 
+                id="itemTitleInput" 
+                class="form-input" 
+                placeholder="e.g. AWS Production Key or DB Password" 
+                required
+              >
+            </div>
+            <div class="form-group">
+              <label for="itemCategorySelect" class="form-label">Category</label>
+              <select id="itemCategorySelect" class="form-input">
+                <option value="api_key">API Key / Token</option>
+                <option value="password">Password / Credential</option>
+                <option value="note">Secure Note</option>
+                <option value="certificate">Certificate / Private Key</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <div class="label-row">
+                <label for="itemSecretInput" class="form-label">Secret Payload (Plaintext)</label>
+                <button type="button" class="text-link-btn" onclick="generateRandomSecret()">Generate Password</button>
+              </div>
+              <textarea 
+                id="itemSecretInput" 
+                class="form-input secret-textarea" 
+                rows="4" 
+                placeholder="Enter sensitive secret data. It will be encrypted with a unique 256-bit DEK."
+              ></textarea>
+              <span class="input-help">Encrypted via AES-256-GCM. Plaintext is never written to disk.</span>
+            </div>
+            <div class="modal-actions">
+              <button type="submit" class="submit-btn" id="saveItemBtn">
+                <span class="btn-text">Encrypt & Store in Vault</span>
+                <span class="btn-spinner hidden"></span>
+              </button>
+              <button type="button" class="cancel-btn" onclick="closeItemModal()">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Modal 2: Version History -->
+      <div id="vaultVersionsModal" class="modal-backdrop hidden">
+        <div class="modal-content modal-wide">
+          <div class="modal-header">
+            <div class="modal-title-group">
+              <h3 class="modal-title">Secret Version History</h3>
+              <span class="modal-subtitle" id="versionModalItemTitle">Item Title</span>
+            </div>
+            <button type="button" class="modal-close-btn" onclick="closeVersionsModal()">&times;</button>
+          </div>
+          <div class="versions-list" id="versionsListContainer">
+            <!-- Populated dynamically -->
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="action-btn secondary" onclick="closeVersionsModal()">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal 3: Sharing Management -->
+      <div id="vaultShareModal" class="modal-backdrop hidden">
+        <div class="modal-content">
+          <div class="modal-header">
+            <div class="modal-title-group">
+              <h3 class="modal-title">Share Resource</h3>
+              <span class="modal-subtitle" id="shareModalItemTitle">Item Title</span>
+            </div>
+            <button type="button" class="modal-close-btn" onclick="closeShareModal()">&times;</button>
+          </div>
+          <form id="addShareForm" onsubmit="handleAddShare(event)">
+            <input type="hidden" id="shareItemId" value="">
+            <div class="form-group">
+              <label for="shareUserEmail" class="form-label">Collaborator Email</label>
+              <input 
+                type="email" 
+                id="shareUserEmail" 
+                class="form-input" 
+                placeholder="colleague@securevault.io" 
+                required
+              >
+            </div>
+            <div class="form-group">
+              <label for="sharePermissionSelect" class="form-label">Permission Level</label>
+              <select id="sharePermissionSelect" class="form-input">
+                <option value="read">Read Only (can reveal & copy)</option>
+                <option value="write">Read & Write (can create new versions)</option>
+              </select>
+            </div>
+            <button type="submit" class="submit-btn" id="shareSubmitBtn">Grant Access</button>
+          </form>
+          <div class="current-shares-section">
+            <h4 class="shares-subheading">Current Collaborators</h4>
+            <div class="shares-list" id="sharesListContainer">
+              <!-- Populated dynamically -->
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="cancel-btn" onclick="closeShareModal()">Done</button>
+          </div>
         </div>
       </div>
 

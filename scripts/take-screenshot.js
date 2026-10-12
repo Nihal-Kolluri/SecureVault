@@ -48,7 +48,7 @@ async function captureUrl(browserPath, url, outputFile) {
         '--headless=new',
         '--disable-gpu',
         `--screenshot=${outputFile}`,
-        '--window-size=1280,840',
+        '--window-size=1280,1024',
         url
       ],
       { stdio: 'inherit' }
@@ -62,9 +62,14 @@ async function captureUrl(browserPath, url, outputFile) {
   console.log(`Saved screenshot: ${outputFile}`);
 }
 
+const PHASE4_DIR = path.join(__dirname, '..', 'docs', 'screenshots', 'phase-4');
+
 async function run() {
   if (!fs.existsSync(PHASE2_DIR)) {
     fs.mkdirSync(PHASE2_DIR, { recursive: true });
+  }
+  if (!fs.existsSync(PHASE4_DIR)) {
+    fs.mkdirSync(PHASE4_DIR, { recursive: true });
   }
 
   const browserPath = getBrowserPath();
@@ -82,8 +87,9 @@ async function run() {
 
   try {
     await waitForServer(`http://localhost:${PORT}`);
-    console.log('Server is responsive. Capturing Phase 2 screenshots...');
+    console.log('Server is responsive. Capturing screenshots...');
 
+    // Phase 2 screenshots
     await captureUrl(
       browserPath,
       `http://localhost:${PORT}/?view=mfa-verify`,
@@ -96,7 +102,26 @@ async function run() {
       path.join(PHASE2_DIR, 'mfa-setup.png')
     );
 
-    console.log('All Phase 2 screenshots successfully captured!');
+    // Phase 4 screenshots
+    await captureUrl(
+      browserPath,
+      `http://localhost:${PORT}/?view=vault`,
+      path.join(PHASE4_DIR, 'vault-items.png')
+    );
+
+    await captureUrl(
+      browserPath,
+      `http://localhost:${PORT}/?view=vault-reveal`,
+      path.join(PHASE4_DIR, 'vault-reveal.png')
+    );
+
+    await captureUrl(
+      browserPath,
+      `http://localhost:${PORT}/?view=vault-versions`,
+      path.join(PHASE4_DIR, 'vault-versions.png')
+    );
+
+    console.log('All screenshots successfully captured!');
   } finally {
     serverProcess.kill('SIGTERM');
   }

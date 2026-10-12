@@ -109,13 +109,43 @@ function initDatabase(dbPath = process.env.DATABASE_URL || ':memory:') {
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
       title TEXT NOT NULL,
-      encrypted_data TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'secret',
+      current_version INTEGER NOT NULL DEFAULT 1,
+      encrypted_dek TEXT NOT NULL,
+      dek_iv TEXT NOT NULL,
+      dek_tag TEXT NOT NULL,
+      kek_version TEXT NOT NULL,
+      ciphertext TEXT NOT NULL,
+      iv TEXT NOT NULL,
+      tag TEXT NOT NULL,
+      algorithm TEXT NOT NULL DEFAULT 'aes-256-gcm',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
     CREATE INDEX IF NOT EXISTS idx_vault_items_user ON vault_items (user_id);
+
+    CREATE TABLE IF NOT EXISTS vault_item_versions (
+      id TEXT PRIMARY KEY,
+      item_id TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      encrypted_dek TEXT NOT NULL,
+      dek_iv TEXT NOT NULL,
+      dek_tag TEXT NOT NULL,
+      kek_version TEXT NOT NULL,
+      ciphertext TEXT NOT NULL,
+      iv TEXT NOT NULL,
+      tag TEXT NOT NULL,
+      algorithm TEXT NOT NULL DEFAULT 'aes-256-gcm',
+      created_by_user_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (item_id) REFERENCES vault_items (id) ON DELETE CASCADE,
+      FOREIGN KEY (created_by_user_id) REFERENCES users (id) ON DELETE CASCADE,
+      UNIQUE (item_id, version)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_vault_versions_item ON vault_item_versions (item_id);
 
     CREATE TABLE IF NOT EXISTS item_shares (
       id TEXT PRIMARY KEY,
@@ -145,6 +175,19 @@ function initDatabase(dbPath = process.env.DATABASE_URL || ':memory:') {
     if (!colNames.includes('mfa_secret')) {
       db.exec('ALTER TABLE users ADD COLUMN mfa_secret TEXT;');
     }
+
+    const vColumns = db.prepare('PRAGMA table_info(vault_items)').all();
+    const vNames = vColumns.map((c) => c.name);
+    if (!vNames.includes('category')) db.exec("ALTER TABLE vault_items ADD COLUMN category TEXT NOT NULL DEFAULT 'secret';");
+    if (!vNames.includes('current_version')) db.exec("ALTER TABLE vault_items ADD COLUMN current_version INTEGER NOT NULL DEFAULT 1;");
+    if (!vNames.includes('encrypted_dek')) db.exec("ALTER TABLE vault_items ADD COLUMN encrypted_dek TEXT NOT NULL DEFAULT '';");
+    if (!vNames.includes('dek_iv')) db.exec("ALTER TABLE vault_items ADD COLUMN dek_iv TEXT NOT NULL DEFAULT '';");
+    if (!vNames.includes('dek_tag')) db.exec("ALTER TABLE vault_items ADD COLUMN dek_tag TEXT NOT NULL DEFAULT '';");
+    if (!vNames.includes('kek_version')) db.exec("ALTER TABLE vault_items ADD COLUMN kek_version TEXT NOT NULL DEFAULT 'kek_v1';");
+    if (!vNames.includes('ciphertext')) db.exec("ALTER TABLE vault_items ADD COLUMN ciphertext TEXT NOT NULL DEFAULT '';");
+    if (!vNames.includes('iv')) db.exec("ALTER TABLE vault_items ADD COLUMN iv TEXT NOT NULL DEFAULT '';");
+    if (!vNames.includes('tag')) db.exec("ALTER TABLE vault_items ADD COLUMN tag TEXT NOT NULL DEFAULT '';");
+    if (!vNames.includes('algorithm')) db.exec("ALTER TABLE vault_items ADD COLUMN algorithm TEXT NOT NULL DEFAULT 'aes-256-gcm';");
   } catch {
     // Ignore migration error if already present
   }
