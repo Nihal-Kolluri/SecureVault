@@ -261,6 +261,11 @@
             <span class="metric-sub">Ciphertext at rest</span>
           </div>
           <div class="metric-card">
+            <span class="metric-title">ENCRYPTED FILES</span>
+            <span class="metric-value" id="vaultFileCount">0</span>
+            <span class="metric-sub">MinIO S3 Stream Store</span>
+          </div>
+          <div class="metric-card">
             <span class="metric-title">ACCESS TOKEN EXPIRY</span>
             <span class="metric-value" id="jwtCountdown">14:59</span>
             <span class="metric-sub">15m sliding window</span>
@@ -272,14 +277,42 @@
           </div>
         </div>
 
+        <!-- View Switcher Tabs -->
+        <nav class="vault-view-tabs" role="tablist">
+          <button type="button" class="view-tab-btn active" id="viewTabSecrets" onclick="switchVaultView('secrets')">
+            <svg class="view-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+            Secrets & Credentials
+          </button>
+          <button type="button" class="view-tab-btn" id="viewTabFiles" onclick="switchVaultView('files')">
+            <svg class="view-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+            </svg>
+            Encrypted Files (MinIO)
+          </button>
+        </nav>
+
         <!-- Quick Top Actions -->
         <div class="vault-top-actions">
-          <button type="button" class="action-btn primary" onclick="openCreateItemModal()">
+          <button type="button" class="action-btn primary" id="storeNewSecretBtn" onclick="openCreateItemModal()">
             <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
             Store New Secret
+          </button>
+          <button type="button" class="action-btn primary hidden" id="uploadFileActionBtn" onclick="triggerFileInput()">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="17 8 12 3 7 8"></polyline>
+              <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            Upload Encrypted File
           </button>
           <button type="button" class="action-btn secondary" onclick="handleRotateMasterKey()">
             <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -301,38 +334,127 @@
           </button>
         </div>
 
-        <!-- Vault Items Main Section -->
-        <section class="vault-items-section">
-          <div class="vault-filter-bar">
-            <div class="search-wrapper">
-              <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="11" cy="11" r="8"></circle>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-              </svg>
-              <input 
-                type="text" 
-                id="vaultSearchInput" 
-                class="search-input" 
-                placeholder="Search encrypted secrets, keys, credentials..."
-                oninput="filterVaultItems()"
-              >
+        <!-- VIEW 1: Secrets & Credentials Section -->
+        <div id="secretsViewSection">
+          <section class="vault-items-section">
+            <div class="vault-filter-bar">
+              <div class="search-wrapper">
+                <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input 
+                  type="text" 
+                  id="vaultSearchInput" 
+                  class="search-input" 
+                  placeholder="Search encrypted secrets, keys, credentials..."
+                  oninput="filterVaultItems()"
+                >
+              </div>
+              <div class="category-pills" id="categoryPills">
+                <button type="button" class="cat-pill active" data-cat="all" onclick="setCategoryFilter('all')">All</button>
+                <button type="button" class="cat-pill" data-cat="api_key" onclick="setCategoryFilter('api_key')">API Keys</button>
+                <button type="button" class="cat-pill" data-cat="password" onclick="setCategoryFilter('password')">Passwords</button>
+                <button type="button" class="cat-pill" data-cat="note" onclick="setCategoryFilter('note')">Secure Notes</button>
+              </div>
             </div>
-            <div class="category-pills" id="categoryPills">
-              <button type="button" class="cat-pill active" data-cat="all" onclick="setCategoryFilter('all')">All</button>
-              <button type="button" class="cat-pill" data-cat="api_key" onclick="setCategoryFilter('api_key')">API Keys</button>
-              <button type="button" class="cat-pill" data-cat="password" onclick="setCategoryFilter('password')">Passwords</button>
-              <button type="button" class="cat-pill" data-cat="note" onclick="setCategoryFilter('note')">Secure Notes</button>
-            </div>
-          </div>
 
-          <!-- Items Container -->
-          <div class="vault-items-list" id="vaultItemsList">
-            <div class="vault-loading-state" id="vaultLoading">
-              <span class="btn-spinner"></span>
-              <span>Loading encrypted vault items...</span>
+            <!-- Items Container -->
+            <div class="vault-items-list" id="vaultItemsList">
+              <div class="vault-loading-state" id="vaultLoading">
+                <span class="btn-spinner"></span>
+                <span>Loading encrypted vault items...</span>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        </div>
+
+        <!-- VIEW 2: Encrypted Files Section (MinIO) -->
+        <div id="filesViewSection" class="hidden">
+          <section class="vault-files-section">
+            <!-- Drag and Drop Zone -->
+            <div 
+              class="drop-zone" 
+              id="fileDropZone" 
+              onclick="triggerFileInput()"
+              ondragover="handleDragOver(event)"
+              ondragleave="handleDragLeave(event)"
+              ondrop="handleFileDrop(event)"
+            >
+              <input 
+                type="file" 
+                id="fileUploadInput" 
+                class="hidden-file-input" 
+                onchange="handleFileSelected(event)"
+              >
+              <div class="drop-zone-content">
+                <div class="drop-icon-wrapper">
+                  <svg class="drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                  </svg>
+                </div>
+                <h4 class="drop-title">Drag & drop files here to encrypt</h4>
+                <p class="drop-subtitle">or <span class="drop-link">browse from your computer</span></p>
+                <div class="drop-meta">
+                  <span class="drop-badge">AES-256-GCM Streaming</span>
+                  <span class="drop-badge">MinIO Object Store</span>
+                  <span class="drop-badge">SHA-256 Checksum</span>
+                  <span class="drop-badge">50MB Limit</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Upload Progress Card with "Encrypting..." state -->
+            <div class="upload-progress-card hidden" id="uploadProgressCard">
+              <div class="progress-file-info">
+                <div class="progress-file-left">
+                  <svg class="progress-file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                  </svg>
+                  <span class="progress-file-name" id="progressFileName">filename.dat</span>
+                </div>
+                <span class="progress-file-size" id="progressFileSize">0 KB</span>
+              </div>
+              <div class="progress-bar-container">
+                <div class="progress-bar-fill" id="progressBarFill" style="width: 0%"></div>
+              </div>
+              <div class="progress-status-row">
+                <div class="progress-status-left">
+                  <span class="pulse-dot"></span>
+                  <span class="progress-status-text" id="progressStatusText">Encrypting... 0%</span>
+                </div>
+                <span class="progress-percent-text" id="progressPercentText">0%</span>
+              </div>
+            </div>
+
+            <!-- Encrypted Files List Header -->
+            <div class="files-list-header">
+              <div class="files-header-title-group">
+                <h3 class="files-heading">Stored Encrypted Files</h3>
+                <span class="files-subheading-text">Encrypted with unique DEKs at rest in MinIO</span>
+              </div>
+              <button type="button" class="action-btn secondary small-btn" onclick="loadFiles()">
+                <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M23 4v6h-6"></path>
+                  <path d="M1 20v-6h6"></path>
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+                Refresh
+              </button>
+            </div>
+
+            <!-- Stored Files List -->
+            <div class="files-items-list" id="filesItemsList">
+              <div class="vault-loading-state" id="filesLoading">
+                <span class="btn-spinner"></span>
+                <span>Loading encrypted files from MinIO...</span>
+              </div>
+            </div>
+          </section>
+        </div>
 
         <!-- API Output for session debugging -->
         <div class="api-output hidden" id="apiOutput">
