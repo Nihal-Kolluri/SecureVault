@@ -11,7 +11,7 @@ SecureVault is an encrypted digital vault application designed with robust secur
 | **Phase 2** | Multi-Factor Authentication (MFA) | `phase-2-mfa` | ✅ Completed | `v0.2.0` |
 | **Phase 3** | Gateway, RBAC & Rate Limiting | `phase-3-gateway-rbac` | ✅ Completed | `v0.3.0` |
 | **Phase 4** | Encryption & Vault | `phase-4-encryption-vault` | ✅ Completed | `v0.4.0` |
-| **Phase 5** | Encrypted Files & MinIO Storage | `phase-5-files` | 🔄 In Review | `v0.5.0` |
+| **Phase 5** | Encrypted Files & MinIO Storage | `phase-5-files` | ✅ Completed | `v0.5.0` |
 | **Phase 6** | Audit Logging & Monitoring | `phase-6-audit-logging` | ⏳ Pending | - |
 | **Phase 7** | End-to-End Integration & API | `phase-7-e2e-api` | ⏳ Pending | - |
 | **Phase 8** | Deployment & Infrastructure | `phase-8-infra` | ⏳ Pending | - |
