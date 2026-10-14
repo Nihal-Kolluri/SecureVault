@@ -5,6 +5,7 @@ const { createGatewayMiddleware } = require('./gateway/gateway');
 const { authRateLimiter, apiRateLimiter } = require('./gateway/rate-limiter');
 const authRouter = require('./routes/auth');
 const vaultRouter = require('./routes/vault');
+const filesRouter = require('./routes/files');
 const adminRouter = require('./routes/admin');
 const { getVaultStatus } = require('./status');
 
@@ -39,10 +40,12 @@ function createApp(options = {}) {
   if (rateLimitEnabled) {
     app.use('/api/auth', authRateLimiter, authRouter);
     app.use('/api/vault', apiRateLimiter, vaultRouter);
+    app.use('/api/files', apiRateLimiter, filesRouter);
     app.use('/api/admin', apiRateLimiter, adminRouter);
   } else {
     app.use('/api/auth', authRouter);
     app.use('/api/vault', vaultRouter);
+    app.use('/api/files', filesRouter);
     app.use('/api/admin', adminRouter);
   }
 
