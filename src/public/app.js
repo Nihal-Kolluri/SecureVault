@@ -9,6 +9,8 @@ let sessionState = {
   pendingSetupToken: null,
   currentRecoveryCodes: [],
   vaultItems: [],
+  files: [],
+  currentVaultView: 'secrets',
   currentCategory: 'all',
   searchQuery: '',
   revealedSecrets: {},
@@ -409,6 +411,7 @@ function setSession(data) {
   startJwtCountdown();
   fetchMfaStatus();
   fetchVaultItems();
+  loadFiles();
   showAlert('Authenticated securely with 15-minute sliding session.', 'success');
 }
 
@@ -1269,6 +1272,395 @@ async function handleRotateMasterKey() {
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/*                 Phase 5: Encrypted Files & MinIO Handlers                  */
+/* -------------------------------------------------------------------------- */
+
+function switchVaultView(view) {
+  sessionState.currentVaultView = view;
+  const tabSecrets = document.getElementById('viewTabSecrets');
+  const tabFiles = document.getElementById('viewTabFiles');
+  const secSecrets = document.getElementById('secretsViewSection');
+  const secFiles = document.getElementById('filesViewSection');
+  const btnStoreSecret = document.getElementById('storeNewSecretBtn');
+  const btnUploadFile = document.getElementById('uploadFileActionBtn');
+
+  if (view === 'secrets') {
+    if (tabSecrets) tabSecrets.classList.add('active');
+    if (tabFiles) tabFiles.classList.remove('active');
+    if (secSecrets) secSecrets.classList.remove('hidden');
+    if (secFiles) secFiles.classList.add('hidden');
+    if (btnStoreSecret) btnStoreSecret.classList.remove('hidden');
+    if (btnUploadFile) btnUploadFile.classList.add('hidden');
+  } else {
+    if (tabFiles) tabFiles.classList.add('active');
+    if (tabSecrets) tabSecrets.classList.remove('active');
+    if (secFiles) secFiles.classList.remove('hidden');
+    if (secSecrets) secSecrets.classList.add('hidden');
+    if (btnUploadFile) btnUploadFile.classList.remove('hidden');
+    if (btnStoreSecret) btnStoreSecret.classList.add('hidden');
+    loadFiles();
+  }
+}
+
+function triggerFileInput() {
+  const input = document.getElementById('fileUploadInput');
+  if (input) input.click();
+}
+
+function handleDragOver(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const dropZone = document.getElementById('fileDropZone');
+  if (dropZone) dropZone.classList.add('drag-active');
+}
+
+function handleDragLeave(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const dropZone = document.getElementById('fileDropZone');
+  if (dropZone) dropZone.classList.remove('drag-active');
+}
+
+function handleFileDrop(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const dropZone = document.getElementById('fileDropZone');
+  if (dropZone) dropZone.classList.remove('drag-active');
+
+  const files = e.dataTransfer && e.dataTransfer.files;
+  if (files && files.length > 0) {
+    uploadEncryptedFile(files[0]);
+  }
+}
+
+function handleFileSelected(e) {
+  const file = e.target.files && e.target.files[0];
+  if (file) {
+    uploadEncryptedFile(file);
+    e.target.value = '';
+  }
+}
+
+function formatBytes(bytes, decimals = 1) {
+  if (!bytes || bytes === 0) return '0 B';
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
+function uploadEncryptedFile(file) {
+  hideAlert();
+  const MAX_LIMIT = 50 * 1024 * 1024; // 50MB
+  if (file.size > MAX_LIMIT) {
+    showAlert(`File exceeds maximum size limit of ${formatBytes(MAX_LIMIT)}.`, 'error');
+    return;
+  }
+
+  const card = document.getElementById('uploadProgressCard');
+  const nameEl = document.getElementById('progressFileName');
+  const sizeEl = document.getElementById('progressFileSize');
+  const fillEl = document.getElementById('progressBarFill');
+  const statusEl = document.getElementById('progressStatusText');
+  const percentEl = document.getElementById('progressPercentText');
+
+  card.classList.remove('hidden');
+  nameEl.textContent = file.name;
+  sizeEl.textContent = formatBytes(file.size);
+  fillEl.style.width = '10%';
+  statusEl.textContent = 'Encrypting... 10% (Streaming AES-256-GCM)';
+  percentEl.textContent = '10%';
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/files/upload', true);
+  if (sessionState.accessToken) {
+    xhr.setRequestHeader('Authorization', `Bearer ${sessionState.accessToken}`);
+  }
+
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable) {
+      const pct = Math.min(Math.round((e.loaded / e.total) * 90), 90);
+      fillEl.style.width = `${pct}%`;
+      percentEl.textContent = `${pct}%`;
+      statusEl.textContent = `Encrypting... ${pct}% (Streaming AES-256-GCM to MinIO)`;
+    }
+  };
+
+  xhr.onload = () => {
+    if (xhr.status === 201) {
+      fillEl.style.width = '100%';
+      percentEl.textContent = '100%';
+      statusEl.textContent = 'SHA-256 Checksum Verified • Stored in MinIO';
+
+      try {
+        const resp = JSON.parse(xhr.responseText);
+        showAlert(`File "${resp.file.filename}" stream-encrypted and stored securely in MinIO!`, 'success');
+      } catch {
+        showAlert('File encrypted and uploaded successfully.', 'success');
+      }
+
+      loadFiles();
+
+      setTimeout(() => {
+        card.classList.add('hidden');
+      }, 2500);
+    } else {
+      card.classList.add('hidden');
+      try {
+        const err = JSON.parse(xhr.responseText);
+        showAlert(err.error || 'Upload failed.', 'error');
+      } catch {
+        showAlert('Upload failed.', 'error');
+      }
+    }
+  };
+
+  xhr.onerror = () => {
+    card.classList.add('hidden');
+    showAlert('Network error while streaming file to MinIO.', 'error');
+  };
+
+  xhr.send(formData);
+}
+
+async function loadFiles() {
+  const container = document.getElementById('filesItemsList');
+  if (!sessionState.accessToken) return;
+
+  if (sessionState.accessToken === 'preview_token') {
+    renderFilesList();
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/files', {
+      headers: { 'Authorization': `Bearer ${sessionState.accessToken}` }
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      sessionState.files = data.files || [];
+      const fileCountEl = document.getElementById('vaultFileCount');
+      if (fileCountEl) fileCountEl.textContent = sessionState.files.length;
+      renderFilesList();
+    } else {
+      container.innerHTML = '<div class="empty-files-placeholder">Failed to load encrypted files from storage.</div>';
+    }
+  } catch {
+    container.innerHTML = '<div class="empty-files-placeholder">Network error communicating with MinIO storage service.</div>';
+  }
+}
+
+function renderFilesList() {
+  const container = document.getElementById('filesItemsList');
+  if (!container) return;
+
+  if (sessionState.files.length === 0) {
+    container.innerHTML = `
+      <div class="empty-files-placeholder">
+        <p>No encrypted files stored in MinIO yet.</p>
+        <span style="font-size:12px;color:var(--text-dim);">Drag & drop any document, key, archive, or database backup above to encrypt.</span>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = sessionState.files.map((file) => {
+    return `
+      <article class="file-card" id="file-card-${file.id}">
+        <div class="file-card-top">
+          <div class="file-info-group">
+            <div class="file-icon-badge">
+              <svg class="file-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+              </svg>
+            </div>
+            <div class="file-title-meta">
+              <span class="file-card-name">${escapeHtml(file.filename)}</span>
+              <span class="file-card-sub">
+                <span>${formatBytes(file.sizeBytes)}</span>
+                <span>•</span>
+                <span>${file.mimeType || 'binary'}</span>
+                <span>•</span>
+                <span>Ciphertext at rest in MinIO</span>
+              </span>
+            </div>
+          </div>
+          <div class="file-card-actions">
+            <button 
+              type="button" 
+              class="action-btn primary small-btn" 
+              onclick="handleDownloadFile('${file.id}', '${escapeJs(file.filename)}', this)"
+            >
+              📥 Decrypt & Download
+            </button>
+            <button 
+              type="button" 
+              class="action-btn secondary small-btn" 
+              id="verify-btn-${file.id}"
+              onclick="handleVerifyFile('${file.id}', this)"
+            >
+              🛡️ Verify Integrity
+            </button>
+            <button 
+              type="button" 
+              class="icon-btn" 
+              style="color:#f87171;" 
+              onclick="handleDeleteFile('${file.id}')"
+              title="Delete from MinIO"
+            >
+              🗑️
+            </button>
+          </div>
+        </div>
+        <div class="file-meta-row">
+          <span class="checksum-badge" title="Cryptographic SHA-256 checksum">
+            SHA-256: <code>${file.sha256Checksum ? file.sha256Checksum.slice(0, 16) + '...' + file.sha256Checksum.slice(-8) : 'N/A'}</code>
+            <button type="button" class="copy-hash-btn" onclick="copyHashToClipboard('${file.sha256Checksum}', this)" title="Copy full SHA-256">
+              📋
+            </button>
+          </span>
+          <span class="drop-badge">Encrypted: ${formatBytes(file.encryptedSizeBytes)}</span>
+          <span class="drop-badge">${file.kekVersion ? file.kekVersion.toUpperCase() : 'KEK v1'} (${file.algorithm || 'aes-256-gcm'})</span>
+          <span style="margin-left:auto;color:var(--text-dim);font-size:11px;">
+            Uploaded ${new Date(file.createdAt).toLocaleString()}
+          </span>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
+async function handleDownloadFile(fileId, filename, btnEl) {
+  hideAlert();
+  let originalHtml = '';
+  if (btnEl) {
+    originalHtml = btnEl.innerHTML;
+    btnEl.innerHTML = '<span class="btn-spinner"></span> Decrypting...';
+    btnEl.disabled = true;
+  }
+
+  try {
+    const res = await fetch(`/api/files/${fileId}/download`, {
+      headers: {
+        'Authorization': `Bearer ${sessionState.accessToken}`
+      }
+    });
+
+    if (!res.ok) {
+      let errMsg = 'Failed to download file';
+      try {
+        const errJson = await res.json();
+        errMsg = errJson.error || errMsg;
+      } catch {}
+      throw new Error(errMsg);
+    }
+
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+
+    showAlert(`File "${filename}" stream-decrypted and downloaded successfully.`, 'success');
+  } catch (err) {
+    showAlert(err.message, 'error');
+  } finally {
+    if (btnEl) {
+      btnEl.innerHTML = originalHtml;
+      btnEl.disabled = false;
+    }
+  }
+}
+
+async function handleVerifyFile(fileId, btnEl) {
+  hideAlert();
+  let originalHtml = '';
+  if (btnEl) {
+    originalHtml = btnEl.innerHTML;
+    btnEl.innerHTML = '<span class="btn-spinner"></span> Checking...';
+    btnEl.disabled = true;
+  }
+
+  try {
+    const res = await fetch(`/api/files/${fileId}/verify`, {
+      headers: {
+        'Authorization': `Bearer ${sessionState.accessToken}`
+      }
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Integrity verification failed');
+    }
+
+    if (btnEl) {
+      btnEl.outerHTML = '<span class="verify-badge intact">✓ Intact & Authenticated</span>';
+    }
+    showAlert(`Integrity Verified: File "${data.filename}" is authentic (AES-GCM Auth Tag & SHA-256 match).`, 'success');
+  } catch (err) {
+    if (btnEl) {
+      btnEl.innerHTML = originalHtml;
+      btnEl.disabled = false;
+    }
+    showAlert(`Tamper Alert: ${err.message}`, 'error');
+  }
+}
+
+async function handleDeleteFile(fileId) {
+  if (!confirm('Are you sure you want to permanently delete this encrypted file from MinIO object storage?')) {
+    return;
+  }
+  hideAlert();
+
+  try {
+    const res = await fetch(`/api/files/${fileId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${sessionState.accessToken}`
+      }
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Delete failed');
+    }
+
+    showAlert('Encrypted file deleted from MinIO storage.', 'success');
+    await loadFiles();
+  } catch (err) {
+    showAlert(err.message, 'error');
+  }
+}
+
+function copyHashToClipboard(hash, btnEl) {
+  if (!hash) return;
+  navigator.clipboard.writeText(hash).then(() => {
+    if (btnEl) {
+      const oldTitle = btnEl.getAttribute('title');
+      btnEl.textContent = '✓';
+      btnEl.style.color = '#38ef7d';
+      setTimeout(() => {
+        btnEl.textContent = '📋';
+        btnEl.style.color = '';
+        btnEl.setAttribute('title', oldTitle);
+      }, 1500);
+    }
+  });
+}
+
 // Initialize on DOM load
 window.addEventListener('DOMContentLoaded', () => {
   initSixBoxes();
@@ -1383,6 +1775,82 @@ window.addEventListener('DOMContentLoaded', () => {
           <button type="button" class="icon-btn">🔍 View</button>
         </div>
       `;
+    }
+  } else if (view === 'files' || view === 'files-encrypting' || view === 'files-verified') {
+    // Generate populated visual dashboard state for Phase 5 screenshots
+    sessionState.accessToken = 'preview_token';
+    sessionState.user = { id: 'preview-usr', email: 'security.lead@securevault.io', mfaEnabled: true };
+    document.getElementById('signInForm').classList.add('hidden');
+    document.getElementById('authTabs').style.display = 'none';
+
+    const wrapper = document.querySelector('.auth-wrapper');
+    if (wrapper) wrapper.classList.add('vault-active');
+
+    const dashboard = document.getElementById('vaultDashboard');
+    dashboard.classList.remove('hidden');
+    document.getElementById('dashUserEmail').textContent = sessionState.user.email;
+    updateMfaStatusUI(true, 8);
+
+    sessionState.vaultItems = [
+      { id: '1', title: 'DB Pass', category: 'password', current_version: 1, access_level: 'owner', kek_version: 'kek_v2' }
+    ];
+    document.getElementById('vaultItemCount').textContent = '1';
+    document.getElementById('kekMetric').textContent = 'KEK v2';
+
+    // Mock files for preview
+    sessionState.files = [
+      {
+        id: 'file-backup-db',
+        filename: 'production_database_backup_20261014.enc.sql.gz',
+        mimeType: 'application/gzip',
+        sizeBytes: 14680064,
+        encryptedSizeBytes: 14680080,
+        sha256Checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+        kekVersion: 'kek_v2',
+        algorithm: 'aes-256-gcm',
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: 'file-pki-cert',
+        filename: 'corporate_tls_intermediate_ca.p12',
+        mimeType: 'application/x-pkcs12',
+        sizeBytes: 4096,
+        encryptedSizeBytes: 4112,
+        sha256Checksum: '5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03',
+        kekVersion: 'kek_v2',
+        algorithm: 'aes-256-gcm',
+        createdAt: new Date(Date.now() - 3600000 * 2).toISOString()
+      },
+      {
+        id: 'file-audit-report',
+        filename: 'soc2_type2_security_audit_report.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 2548000,
+        encryptedSizeBytes: 2548016,
+        sha256Checksum: 'b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9',
+        kekVersion: 'kek_v2',
+        algorithm: 'aes-256-gcm',
+        createdAt: new Date(Date.now() - 86400000).toISOString()
+      }
+    ];
+
+    document.getElementById('vaultFileCount').textContent = sessionState.files.length;
+    switchVaultView('files');
+    renderFilesList();
+
+    if (view === 'files-encrypting') {
+      const card = document.getElementById('uploadProgressCard');
+      card.classList.remove('hidden');
+      document.getElementById('progressFileName').textContent = 'quarterly_audit_records.tar.gz';
+      document.getElementById('progressFileSize').textContent = '8.4 MB';
+      document.getElementById('progressBarFill').style.width = '74%';
+      document.getElementById('progressStatusText').textContent = 'Encrypting... 74% (Streaming AES-256-GCM to MinIO)';
+      document.getElementById('progressPercentText').textContent = '74%';
+    } else if (view === 'files-verified') {
+      const verifyBtn = document.getElementById('verify-btn-file-backup-db');
+      if (verifyBtn) {
+        verifyBtn.outerHTML = '<span class="verify-badge intact">✓ Intact & Authenticated</span>';
+      }
     }
   }
 });

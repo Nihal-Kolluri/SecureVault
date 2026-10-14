@@ -11,11 +11,12 @@ SecureVault is an encrypted digital vault application designed with robust secur
 | **Phase 2** | Multi-Factor Authentication (MFA) | `phase-2-mfa` | ✅ Completed | `v0.2.0` |
 | **Phase 3** | Gateway, RBAC & Rate Limiting | `phase-3-gateway-rbac` | ✅ Completed | `v0.3.0` |
 | **Phase 4** | Encryption & Vault | `phase-4-encryption-vault` | ✅ Completed | `v0.4.0` |
-| **Phase 5** | Audit Logging & Monitoring | `phase-5-audit-logging` | ⏳ Pending | - |
-| **Phase 6** | End-to-End Integration & API | `phase-6-e2e-api` | ⏳ Pending | - |
-| **Phase 7** | Deployment & Infrastructure | `phase-7-infra` | ⏳ Pending | - |
-| **Phase 8** | Red Team Vulnerability Assessment | `vulnerable` (isolated) | ⏳ Pending | - |
-| **Phase 9** | Blue Team Hardening & Verification | `phase-9-hardening` | ⏳ Pending | - |
+| **Phase 5** | Encrypted Files & MinIO Storage | `phase-5-files` | 🔄 In Review | `v0.5.0` |
+| **Phase 6** | Audit Logging & Monitoring | `phase-6-audit-logging` | ⏳ Pending | - |
+| **Phase 7** | End-to-End Integration & API | `phase-7-e2e-api` | ⏳ Pending | - |
+| **Phase 8** | Deployment & Infrastructure | `phase-8-infra` | ⏳ Pending | - |
+| **Phase 9** | Red Team Vulnerability Assessment | `vulnerable` (isolated) | ⏳ Pending | - |
+| **Phase 10** | Blue Team Hardening & Verification | `phase-10-hardening` | ⏳ Pending | - |
 
 ## Security & Contribution Guidelines
 

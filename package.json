@@ -1,12 +1,12 @@
 {
   "name": "securevault",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "SecureVault - High-security encrypted digital vault and application",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "test": "node --test tests/*.test.js",
-    "lint": "node --check src/index.js src/app.js src/db/*.js src/auth/*.js src/gateway/*.js src/crypto/*.js src/routes/*.js tests/*.test.js",
+    "lint": "node --check src/index.js src/app.js src/db/*.js src/auth/*.js src/gateway/*.js src/crypto/*.js src/storage/*.js src/routes/*.js tests/*.test.js",
     "scan:secrets": "node scripts/secret-scan.js",
     "screenshot": "node scripts/take-screenshot.js"
   },
@@ -20,11 +20,13 @@
   "license": "MIT",
   "dependencies": {
     "@node-rs/argon2": "^2.2.2",
+    "busboy": "^1.6.0",
     "cookie-parser": "^1.4.7",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "ioredis": "^5.11.1",
     "jsonwebtoken": "^9.0.2",
+    "minio": "^8.0.7",
     "otplib": "^13.5.0",
     "qrcode": "^1.5.4"
   },

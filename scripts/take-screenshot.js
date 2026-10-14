@@ -48,7 +48,7 @@ async function captureUrl(browserPath, url, outputFile) {
         '--headless=new',
         '--disable-gpu',
         `--screenshot=${outputFile}`,
-        '--window-size=1280,1024',
+        '--window-size=1280,1400',
         url
       ],
       { stdio: 'inherit' }
@@ -63,6 +63,7 @@ async function captureUrl(browserPath, url, outputFile) {
 }
 
 const PHASE4_DIR = path.join(__dirname, '..', 'docs', 'screenshots', 'phase-4');
+const PHASE5_DIR = path.join(__dirname, '..', 'docs', 'screenshots', 'phase-5');
 
 async function run() {
   if (!fs.existsSync(PHASE2_DIR)) {
@@ -70,6 +71,9 @@ async function run() {
   }
   if (!fs.existsSync(PHASE4_DIR)) {
     fs.mkdirSync(PHASE4_DIR, { recursive: true });
+  }
+  if (!fs.existsSync(PHASE5_DIR)) {
+    fs.mkdirSync(PHASE5_DIR, { recursive: true });
   }
 
   const browserPath = getBrowserPath();
@@ -119,6 +123,25 @@ async function run() {
       browserPath,
       `http://localhost:${PORT}/?view=vault-versions`,
       path.join(PHASE4_DIR, 'vault-versions.png')
+    );
+
+    // Phase 5 screenshots
+    await captureUrl(
+      browserPath,
+      `http://localhost:${PORT}/?view=files`,
+      path.join(PHASE5_DIR, 'files-vault.png')
+    );
+
+    await captureUrl(
+      browserPath,
+      `http://localhost:${PORT}/?view=files-encrypting`,
+      path.join(PHASE5_DIR, 'files-encrypting.png')
+    );
+
+    await captureUrl(
+      browserPath,
+      `http://localhost:${PORT}/?view=files-verified`,
+      path.join(PHASE5_DIR, 'files-verified.png')
     );
 
     console.log('All screenshots successfully captured!');

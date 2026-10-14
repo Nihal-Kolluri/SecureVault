@@ -160,6 +160,32 @@ function initDatabase(dbPath = process.env.DATABASE_URL || ':memory:') {
 
     CREATE INDEX IF NOT EXISTS idx_item_shares_user ON item_shares (shared_with_user_id);
     CREATE INDEX IF NOT EXISTS idx_item_shares_item ON item_shares (item_id);
+
+    CREATE TABLE IF NOT EXISTS vault_files (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      original_filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      encrypted_size_bytes INTEGER NOT NULL,
+      storage_bucket TEXT NOT NULL,
+      storage_key TEXT NOT NULL,
+      sha256_checksum TEXT NOT NULL,
+      encrypted_dek TEXT NOT NULL,
+      dek_iv TEXT NOT NULL,
+      dek_tag TEXT NOT NULL,
+      kek_version TEXT NOT NULL,
+      iv TEXT NOT NULL,
+      tag TEXT NOT NULL,
+      algorithm TEXT NOT NULL DEFAULT 'aes-256-gcm',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_vault_files_user ON vault_files (user_id);
+    CREATE INDEX IF NOT EXISTS idx_vault_files_storage ON vault_files (storage_bucket, storage_key);
   `);
 
   // Migration helper: Ensure existing databases add missing columns if needed
