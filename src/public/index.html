@@ -275,6 +275,11 @@
             <span class="metric-value" id="mfaBadge">DISABLED</span>
             <span class="metric-sub" id="mfaSubText">TOTP protection</span>
           </div>
+          <div class="metric-card">
+            <span class="metric-title">AUDIT CHAIN</span>
+            <span class="metric-value" id="auditChainMetric">INTACT</span>
+            <span class="metric-sub" id="auditChainSub">SHA-256 Chained</span>
+          </div>
         </div>
 
         <!-- View Switcher Tabs -->
@@ -294,6 +299,21 @@
               <line x1="16" y1="17" x2="8" y2="17"></line>
             </svg>
             Encrypted Files (MinIO)
+          </button>
+          <button type="button" class="view-tab-btn" id="viewTabSessions" onclick="switchVaultView('sessions')">
+            <svg class="view-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+              <line x1="8" y1="21" x2="16" y2="21"></line>
+              <line x1="12" y1="17" x2="12" y2="21"></line>
+            </svg>
+            Active Sessions
+          </button>
+          <button type="button" class="view-tab-btn" id="viewTabAudit" onclick="switchVaultView('audit')">
+            <svg class="view-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              <polyline points="9 12 11 14 15 10"></polyline>
+            </svg>
+            Audit Trail
           </button>
         </nav>
 
@@ -451,6 +471,112 @@
               <div class="vault-loading-state" id="filesLoading">
                 <span class="btn-spinner"></span>
                 <span>Loading encrypted files from MinIO...</span>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- VIEW 3: Active Sessions Section -->
+        <div id="sessionsViewSection" class="hidden">
+          <section class="sessions-section">
+            <div class="section-top-bar">
+              <div class="section-title-group">
+                <h3 class="section-heading">Active Sessions & Devices</h3>
+                <span class="section-subheading">Manage your active sign-ins, device fingerprints, and revoke compromised sessions immediately.</span>
+              </div>
+              <div class="section-action-group">
+                <button type="button" class="action-btn danger small-btn" id="revokeOtherSessionsBtn" onclick="handleRevokeAllOtherSessions()">
+                  <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="15" y1="9" x2="9" y2="15"></line>
+                    <line x1="9" y1="9" x2="15" y2="15"></line>
+                  </svg>
+                  Revoke All Other Sessions
+                </button>
+                <button type="button" class="action-btn secondary small-btn" onclick="loadSessions()">
+                  <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M23 4v6h-6"></path>
+                    <path d="M1 20v-6h6"></path>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                  </svg>
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            <!-- Sessions List Container -->
+            <div class="sessions-list" id="sessionsList">
+              <div class="vault-loading-state" id="sessionsLoading">
+                <span class="btn-spinner"></span>
+                <span>Loading active sessions...</span>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- VIEW 4: Audit Trail Section (Hash-Chained) -->
+        <div id="auditViewSection" class="hidden">
+          <section class="audit-section">
+            <!-- Cryptographic Chain Status Banner -->
+            <div class="audit-chain-banner" id="auditChainBanner">
+              <div class="chain-status-left">
+                <div class="chain-shield-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                    <path d="M9 12l2 2 4-4"></path>
+                  </svg>
+                </div>
+                <div class="chain-status-text">
+                  <div class="chain-status-title-row">
+                    <h3 class="chain-status-title" id="chainStatusTitle">Cryptographic Chain Intact</h3>
+                    <span class="chain-badge verified" id="chainStatusBadge">VERIFIED INTACT</span>
+                  </div>
+                  <div class="chain-status-meta">
+                    <span id="chainBlocksCount">0 blocks in sequence</span>
+                    <span class="meta-dot">•</span>
+                    <span>HEAD Hash: <code class="head-hash-code" id="chainHeadHash">0000...</code></span>
+                  </div>
+                </div>
+              </div>
+              <div class="chain-status-right">
+                <button type="button" class="action-btn primary small-btn" id="verifyChainBtn" onclick="handleVerifyAuditChain()">
+                  <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                  Verify Cryptographic Chain
+                </button>
+              </div>
+            </div>
+
+            <!-- Filter Bar -->
+            <div class="audit-filter-bar">
+              <div class="search-wrapper">
+                <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input 
+                  type="text" 
+                  id="auditSearchInput" 
+                  class="search-input" 
+                  placeholder="Filter audit events by actor, IP, or resource ID..."
+                  oninput="handleAuditSearch(event)"
+                >
+              </div>
+              <div class="category-pills" id="auditActionPills">
+                <button type="button" class="cat-pill active" data-action="all" onclick="setAuditActionFilter('all')">All Events</button>
+                <button type="button" class="cat-pill" data-action="auth" onclick="setAuditActionFilter('auth')">Auth</button>
+                <button type="button" class="cat-pill" data-action="vault" onclick="setAuditActionFilter('vault')">Vault</button>
+                <button type="button" class="cat-pill" data-action="files" onclick="setAuditActionFilter('files')">Files</button>
+                <button type="button" class="cat-pill" data-action="session" onclick="setAuditActionFilter('session')">Sessions</button>
+              </div>
+            </div>
+
+            <!-- Audit Logs List -->
+            <div class="audit-logs-list" id="auditLogsList">
+              <div class="vault-loading-state" id="auditLoading">
+                <span class="btn-spinner"></span>
+                <span>Loading hash-chained audit trail...</span>
               </div>
             </div>
           </section>

@@ -1280,26 +1280,43 @@ function switchVaultView(view) {
   sessionState.currentVaultView = view;
   const tabSecrets = document.getElementById('viewTabSecrets');
   const tabFiles = document.getElementById('viewTabFiles');
+  const tabSessions = document.getElementById('viewTabSessions');
+  const tabAudit = document.getElementById('viewTabAudit');
+
   const secSecrets = document.getElementById('secretsViewSection');
   const secFiles = document.getElementById('filesViewSection');
+  const secSessions = document.getElementById('sessionsViewSection');
+  const secAudit = document.getElementById('auditViewSection');
+
   const btnStoreSecret = document.getElementById('storeNewSecretBtn');
   const btnUploadFile = document.getElementById('uploadFileActionBtn');
 
+  // Deactivate all tab buttons
+  [tabSecrets, tabFiles, tabSessions, tabAudit].forEach((t) => t && t.classList.remove('active'));
+  // Hide all section panels
+  [secSecrets, secFiles, secSessions, secAudit].forEach((s) => s && s.classList.add('hidden'));
+
+  // Hide top quick action buttons by default
+  if (btnStoreSecret) btnStoreSecret.classList.add('hidden');
+  if (btnUploadFile) btnUploadFile.classList.add('hidden');
+
   if (view === 'secrets') {
     if (tabSecrets) tabSecrets.classList.add('active');
-    if (tabFiles) tabFiles.classList.remove('active');
     if (secSecrets) secSecrets.classList.remove('hidden');
-    if (secFiles) secFiles.classList.add('hidden');
     if (btnStoreSecret) btnStoreSecret.classList.remove('hidden');
-    if (btnUploadFile) btnUploadFile.classList.add('hidden');
-  } else {
+  } else if (view === 'files') {
     if (tabFiles) tabFiles.classList.add('active');
-    if (tabSecrets) tabSecrets.classList.remove('active');
     if (secFiles) secFiles.classList.remove('hidden');
-    if (secSecrets) secSecrets.classList.add('hidden');
     if (btnUploadFile) btnUploadFile.classList.remove('hidden');
-    if (btnStoreSecret) btnStoreSecret.classList.add('hidden');
     loadFiles();
+  } else if (view === 'sessions') {
+    if (tabSessions) tabSessions.classList.add('active');
+    if (secSessions) secSessions.classList.remove('hidden');
+    loadSessions();
+  } else if (view === 'audit') {
+    if (tabAudit) tabAudit.classList.add('active');
+    if (secAudit) secAudit.classList.remove('hidden');
+    loadAuditLogs();
   }
 }
 
@@ -1852,5 +1869,483 @@ window.addEventListener('DOMContentLoaded', () => {
         verifyBtn.outerHTML = '<span class="verify-badge intact">✓ Intact & Authenticated</span>';
       }
     }
+  } else if (view === 'sessions') {
+    document.getElementById('signInForm').classList.add('hidden');
+    document.getElementById('authTabs').style.display = 'none';
+
+    const wrapper = document.querySelector('.auth-wrapper');
+    if (wrapper) wrapper.classList.add('vault-active');
+
+    const dashboard = document.getElementById('vaultDashboard');
+    dashboard.classList.remove('hidden');
+    document.getElementById('dashUserEmail').textContent = 'security.lead@securevault.io';
+    updateMfaStatusUI(true, 8);
+
+    sessionState.accessToken = 'mock-access-token';
+    sessionState.tokenExpiresAt = Date.now() + 15 * 60 * 1000;
+    startJwtCountdown();
+
+    sessionState.sessions = [
+      {
+        id: 'sess-current-dev-1',
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36',
+        ipAddress: '192.168.1.104',
+        createdAt: new Date().toISOString(),
+        lastUsedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 7 * 86400000).toISOString(),
+        isRevoked: false,
+        isCurrent: true
+      },
+      {
+        id: 'sess-remote-iphone-2',
+        userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148',
+        ipAddress: '172.56.21.88',
+        createdAt: new Date(Date.now() - 3600000 * 5).toISOString(),
+        lastUsedAt: new Date(Date.now() - 3600000 * 1).toISOString(),
+        expiresAt: new Date(Date.now() + 6 * 86400000).toISOString(),
+        isRevoked: false,
+        isCurrent: false
+      },
+      {
+        id: 'sess-macbook-work-3',
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_3_1) AppleWebKit/537.36 Chrome/121.0.0.0',
+        ipAddress: '10.0.4.15',
+        createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+        lastUsedAt: new Date(Date.now() - 3600000 * 12).toISOString(),
+        expiresAt: new Date(Date.now() + 5 * 86400000).toISOString(),
+        isRevoked: false,
+        isCurrent: false
+      }
+    ];
+
+    switchVaultView('sessions');
+    renderSessionsList();
+  } else if (view === 'audit') {
+    document.getElementById('signInForm').classList.add('hidden');
+    document.getElementById('authTabs').style.display = 'none';
+
+    const wrapper = document.querySelector('.auth-wrapper');
+    if (wrapper) wrapper.classList.add('vault-active');
+
+    const dashboard = document.getElementById('vaultDashboard');
+    dashboard.classList.remove('hidden');
+    document.getElementById('dashUserEmail').textContent = 'security.lead@securevault.io';
+    updateMfaStatusUI(true, 8);
+
+    sessionState.accessToken = 'mock-access-token';
+    sessionState.tokenExpiresAt = Date.now() + 15 * 60 * 1000;
+    startJwtCountdown();
+
+    sessionState.auditVerification = {
+      verified: true,
+      count: 64,
+      status: 'CHAIN_INTACT',
+      headHash: '7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069'
+    };
+
+    sessionState.auditLogs = [
+      {
+        sequence: 64,
+        action: 'FILE_UPLOAD',
+        resource_type: 'file',
+        resource_id: 'file-backup-db',
+        actor_email: 'security.admin@securevault.io',
+        actor_ip: '192.168.1.104',
+        timestamp: new Date().toISOString(),
+        details: { filename: 'production_database_backup_20261014.enc.sql.gz', sizeBytes: 14680064, sha256Checksum: 'e3b0c44298fc1c14...' },
+        prev_hash: '2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae',
+        entry_hash: '7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069'
+      },
+      {
+        sequence: 63,
+        action: 'KEK_ROTATE',
+        resource_type: 'key',
+        resource_id: 'kek_v2',
+        actor_email: 'security.admin@securevault.io',
+        actor_ip: '192.168.1.104',
+        timestamp: new Date(Date.now() - 3600000).toISOString(),
+        details: { itemsRotated: 12, versionsRotated: 24, activeKekVersion: 'kek_v2' },
+        prev_hash: 'fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9',
+        entry_hash: '2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae'
+      },
+      {
+        sequence: 62,
+        action: 'VAULT_SECRET_CREATE',
+        resource_type: 'vault_item',
+        resource_id: 'item-prod-db',
+        actor_email: 'security.admin@securevault.io',
+        actor_ip: '192.168.1.104',
+        timestamp: new Date(Date.now() - 7200000).toISOString(),
+        details: { title: 'Production PostgreSQL Master Key', category: 'secret', version: 1, kekVersion: 'kek_v1' },
+        prev_hash: 'a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e',
+        entry_hash: 'fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9'
+      },
+      {
+        sequence: 61,
+        action: 'AUTH_LOGIN_SUCCESS',
+        resource_type: 'session',
+        resource_id: 'sess-current-dev-1',
+        actor_email: 'security.admin@securevault.io',
+        actor_ip: '192.168.1.104',
+        timestamp: new Date(Date.now() - 10800000).toISOString(),
+        details: { mfaRequired: true, method: 'totp' },
+        prev_hash: '0000000000000000000000000000000000000000000000000000000000000000',
+        entry_hash: 'a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e'
+      }
+    ];
+
+    switchVaultView('audit');
+    updateAuditChainBanner(sessionState.auditVerification, { total: 64 });
+    renderAuditLogs();
   }
 });
+
+/* -------------------------------------------------------------------------- */
+/*                       Phase 6: Sessions Management Handlers                */
+/* -------------------------------------------------------------------------- */
+
+async function loadSessions() {
+  const container = document.getElementById('sessionsList');
+  if (!container || !sessionState.accessToken) return;
+
+  if (sessionState.accessToken === 'mock-access-token') {
+    renderSessionsList();
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/sessions', {
+      headers: { 'Authorization': `Bearer ${sessionState.accessToken}` }
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      sessionState.sessions = data.sessions || [];
+      renderSessionsList();
+    } else {
+      container.innerHTML = '<div class="empty-files-placeholder">Failed to load active sessions.</div>';
+    }
+  } catch {
+    container.innerHTML = '<div class="empty-files-placeholder">Network error loading sessions.</div>';
+  }
+}
+
+function parseDeviceName(userAgent) {
+  if (!userAgent) return 'Unknown Device';
+  if (/iPhone/i.test(userAgent)) return 'Apple iPhone (iOS Safari)';
+  if (/iPad/i.test(userAgent)) return 'Apple iPad (iPadOS)';
+  if (/Android/i.test(userAgent)) return 'Android Mobile Device';
+  if (/Macintosh/i.test(userAgent)) return 'Apple Mac (macOS)';
+  if (/Windows/i.test(userAgent)) return 'Windows Workstation (PC)';
+  if (/Linux/i.test(userAgent)) return 'Linux Machine';
+  return 'Desktop Web Browser';
+}
+
+function renderSessionsList() {
+  const container = document.getElementById('sessionsList');
+  if (!container) return;
+
+  const sessions = sessionState.sessions || [];
+  if (sessions.length === 0) {
+    container.innerHTML = '<div class="empty-files-placeholder">No active sessions found.</div>';
+    return;
+  }
+
+  container.innerHTML = sessions.map((s) => {
+    const deviceName = parseDeviceName(s.userAgent);
+    const isCurrent = Boolean(s.isCurrent);
+    const isRevoked = Boolean(s.isRevoked);
+
+    const isMobile = /iPhone|iPad|Android/i.test(s.userAgent || '');
+    const deviceIcon = isMobile
+      ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>`
+      : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>`;
+
+    return `
+      <div class="session-card ${isCurrent ? 'is-current' : ''} ${isRevoked ? 'is-revoked' : ''}" id="session-card-${s.id}">
+        <div class="session-card-top">
+          <div class="session-device-info">
+            <div class="session-device-icon">${deviceIcon}</div>
+            <div class="session-device-text">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span class="session-device-name">${escapeHtml(deviceName)}</span>
+                ${isCurrent ? '<span class="current-device-badge"><span class="pulse-dot"></span> THIS DEVICE</span>' : ''}
+              </div>
+              <div class="session-ip-row">
+                <span>IP Address:</span>
+                <span class="ip-pill">${escapeHtml(s.ipAddress)}</span>
+                <span>•</span>
+                <span style="font-size:11px; color:#64748b;">${escapeHtml((s.userAgent || '').slice(0, 48))}...</span>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span class="session-status-badge ${isRevoked ? 'revoked' : 'active'}">
+              ${isRevoked ? 'REVOKED' : 'ACTIVE'}
+            </span>
+            ${!isCurrent && !isRevoked ? `
+              <button type="button" class="action-btn danger small-btn" onclick="handleRevokeSession('${s.id}')">
+                Revoke
+              </button>
+            ` : ''}
+          </div>
+        </div>
+        <div class="session-card-bottom">
+          <div class="session-meta-row">
+            <div class="meta-item">
+              <span class="meta-item-label">Created:</span>
+              <span class="meta-item-val">${new Date(s.createdAt).toLocaleString()}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-item-label">Last Activity:</span>
+              <span class="meta-item-val">${new Date(s.lastUsedAt).toLocaleString()}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-item-label">Session ID:</span>
+              <span class="meta-item-val">${s.id.slice(0, 8)}...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function handleRevokeSession(sessionId) {
+  if (!confirm('Are you sure you want to revoke this session? The device will be signed out immediately.')) return;
+  hideAlert();
+
+  try {
+    const res = await fetch(`/api/sessions/${sessionId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${sessionState.accessToken}` }
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to revoke session');
+
+    showAlert('Session revoked successfully. Remote device disconnected.', 'success');
+    loadSessions();
+  } catch (err) {
+    showAlert(err.message, 'error');
+  }
+}
+
+async function handleRevokeAllOtherSessions() {
+  if (!confirm('Are you sure you want to revoke all other active sessions? All other devices will be signed out.')) return;
+  hideAlert();
+
+  try {
+    const res = await fetch('/api/sessions/revoke-others', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${sessionState.accessToken}` }
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to revoke sessions');
+
+    showAlert(`Revoked ${data.revokedCount} other session(s). Your current session remains active.`, 'success');
+    loadSessions();
+  } catch (err) {
+    showAlert(err.message, 'error');
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                       Phase 6: Audit Trail Handlers                        */
+/* -------------------------------------------------------------------------- */
+
+let currentAuditActionFilter = 'all';
+let currentAuditSearchQuery = '';
+
+async function loadAuditLogs() {
+  const container = document.getElementById('auditLogsList');
+  if (!container || !sessionState.accessToken) return;
+
+  if (sessionState.accessToken === 'mock-access-token') {
+    renderAuditLogs();
+    return;
+  }
+
+  try {
+    let url = '/api/audit?limit=50';
+    if (currentAuditActionFilter !== 'all') {
+      url += `&action=${encodeURIComponent(currentAuditActionFilter)}`;
+    }
+    if (currentAuditSearchQuery) {
+      url += `&search=${encodeURIComponent(currentAuditSearchQuery)}`;
+    }
+
+    const res = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${sessionState.accessToken}` }
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      sessionState.auditLogs = data.logs || [];
+      sessionState.auditVerification = data.verification || {};
+      updateAuditChainBanner(data.verification, data.pagination);
+      renderAuditLogs();
+    } else {
+      container.innerHTML = '<div class="empty-files-placeholder">Failed to load audit logs.</div>';
+    }
+  } catch {
+    container.innerHTML = '<div class="empty-files-placeholder">Network error connecting to audit service.</div>';
+  }
+}
+
+function updateAuditChainBanner(verification, pagination) {
+  const banner = document.getElementById('auditChainBanner');
+  const title = document.getElementById('chainStatusTitle');
+  const badge = document.getElementById('chainStatusBadge');
+  const blocksCount = document.getElementById('chainBlocksCount');
+  const headHash = document.getElementById('chainHeadHash');
+  const metric = document.getElementById('auditChainMetric');
+  const metricSub = document.getElementById('auditChainSub');
+
+  const isIntact = verification && verification.verified;
+  const count = (pagination && pagination.total) || (verification && verification.count) || 0;
+  const hash = (verification && verification.headHash) || '0000000000000000';
+
+  if (blocksCount) blocksCount.textContent = `${count} cryptographically sealed event${count === 1 ? '' : 's'}`;
+  if (headHash) headHash.textContent = hash.slice(0, 16) + '...';
+
+  if (isIntact) {
+    if (banner) banner.classList.remove('tampered');
+    if (title) title.textContent = 'Cryptographic Hash-Chain Intact';
+    if (badge) {
+      badge.className = 'chain-badge verified';
+      badge.textContent = 'VERIFIED INTACT';
+    }
+    if (metric) metric.textContent = 'INTACT';
+    if (metricSub) metricSub.textContent = `${count} SHA-256 blocks`;
+  } else {
+    if (banner) banner.classList.add('tampered');
+    if (title) title.textContent = 'Cryptographic Tamper Detected!';
+    if (badge) {
+      badge.className = 'chain-badge tampered';
+      badge.textContent = 'CHAIN COMPROMISED';
+    }
+    if (metric) metric.textContent = 'TAMPERED';
+    if (metricSub) metricSub.textContent = 'Integrity alert!';
+  }
+}
+
+function getActionCategory(action) {
+  if (!action) return 'auth';
+  const a = action.toUpperCase();
+  if (a.startsWith('AUTH_') || a.startsWith('MFA_')) return 'auth';
+  if (a.startsWith('VAULT_') || a.startsWith('KEK_')) return 'vault';
+  if (a.startsWith('FILE_')) return 'files';
+  if (a.startsWith('SESSION_')) return 'session';
+  return 'admin';
+}
+
+function renderAuditLogs() {
+  const container = document.getElementById('auditLogsList');
+  if (!container) return;
+
+  const logs = sessionState.auditLogs || [];
+  if (logs.length === 0) {
+    container.innerHTML = '<div class="empty-files-placeholder">No audit logs matching current criteria.</div>';
+    return;
+  }
+
+  container.innerHTML = logs.map((log) => {
+    const cat = getActionCategory(log.action);
+    const seqStr = String(log.sequence).padStart(4, '0');
+    const timeFormatted = new Date(log.timestamp).toLocaleString();
+    const detailsStr = log.details ? (typeof log.details === 'object' ? JSON.stringify(log.details) : log.details) : null;
+
+    return `
+      <div class="audit-card">
+        <div class="audit-card-header">
+          <div class="audit-header-left">
+            <span class="seq-badge">#${seqStr}</span>
+            <span class="action-badge ${cat}">${escapeHtml(log.action)}</span>
+            ${log.resource_type ? `<span class="badge-category">${escapeHtml(log.resource_type)}</span>` : ''}
+          </div>
+          <span class="audit-time">${escapeHtml(timeFormatted)}</span>
+        </div>
+        <div class="audit-body-row">
+          <div class="audit-actor-info">
+            <span style="color:var(--text-muted);">Actor:</span>
+            <span style="color:#e2e8f0; font-weight:500;">${escapeHtml(log.actor_email || log.actor_id || 'System / Anonymous')}</span>
+          </div>
+          ${log.actor_ip ? `
+            <div class="audit-actor-info">
+              <span style="color:var(--text-muted);">IP:</span>
+              <span class="ip-pill">${escapeHtml(log.actor_ip)}</span>
+            </div>
+          ` : ''}
+          ${log.resource_id ? `
+            <div class="audit-actor-info">
+              <span style="color:var(--text-muted);">Resource ID:</span>
+              <code style="font-size:11px; color:#cbd5e1;">${escapeHtml(String(log.resource_id).slice(0, 18))}...</code>
+            </div>
+          ` : ''}
+        </div>
+        ${detailsStr ? `
+          <div class="audit-details-preview">
+            <span style="color:#64748b;">payload: </span>${escapeHtml(detailsStr)}
+          </div>
+        ` : ''}
+        <div class="audit-hash-chain-row">
+          <div class="hash-link-pair">
+            <span style="color:#64748b;">prev:</span>
+            <span class="hash-pill">${log.prev_hash.slice(0, 12)}...</span>
+            <span class="chain-arrow">➔</span>
+            <span style="color:#64748b;">hash:</span>
+            <span class="hash-pill" style="color:#38bdf8;">${log.entry_hash.slice(0, 12)}...</span>
+          </div>
+          <span style="color:#475569; font-size:10px;">SHA-256 HMAC Bound</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function handleVerifyAuditChain() {
+  const btn = document.getElementById('verifyChainBtn');
+  if (btn) btn.disabled = true;
+  hideAlert();
+
+  try {
+    const res = await fetch('/api/audit/verify', {
+      headers: { 'Authorization': `Bearer ${sessionState.accessToken}` }
+    });
+    const report = await res.json();
+
+    if (report.verified) {
+      updateAuditChainBanner(report, { total: report.count });
+      showAlert(`Cryptographic hash-chain verified! All ${report.count} events strictly intact and tamper-free.`, 'success');
+    } else {
+      updateAuditChainBanner(report);
+      showAlert(`Cryptographic verification failed: ${report.reason} at sequence #${report.brokenSequence}!`, 'error');
+    }
+  } catch (err) {
+    showAlert('Failed to connect to verification endpoint: ' + err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function setAuditActionFilter(action) {
+  currentAuditActionFilter = action;
+  const pills = document.querySelectorAll('#auditActionPills .cat-pill');
+  pills.forEach((p) => {
+    if (p.getAttribute('data-action') === action) p.classList.add('active');
+    else p.classList.remove('active');
+  });
+  loadAuditLogs();
+}
+
+let auditSearchDebounce = null;
+function handleAuditSearch(e) {
+  clearTimeout(auditSearchDebounce);
+  const val = e.target.value;
+  auditSearchDebounce = setTimeout(() => {
+    currentAuditSearchQuery = val;
+    loadAuditLogs();
+  }, 300);
+}

@@ -186,6 +186,27 @@ function initDatabase(dbPath = process.env.DATABASE_URL || ':memory:') {
 
     CREATE INDEX IF NOT EXISTS idx_vault_files_user ON vault_files (user_id);
     CREATE INDEX IF NOT EXISTS idx_vault_files_storage ON vault_files (storage_bucket, storage_key);
+
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id TEXT PRIMARY KEY,
+      sequence INTEGER UNIQUE NOT NULL,
+      timestamp TEXT NOT NULL,
+      action TEXT NOT NULL,
+      actor_id TEXT,
+      actor_email TEXT,
+      actor_ip TEXT,
+      resource_type TEXT,
+      resource_id TEXT,
+      details TEXT,
+      prev_hash TEXT NOT NULL,
+      entry_hash TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_audit_sequence ON audit_logs (sequence);
+    CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs (action);
+    CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs (actor_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_resource ON audit_logs (resource_type, resource_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs (timestamp);
   `);
 
   // Migration helper: Ensure existing databases add missing columns if needed

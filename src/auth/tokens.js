@@ -16,6 +16,7 @@ function generateAccessToken(user) {
     sub: user.id,
     email: user.email,
     role: user.role || 'user',
+    sid: user.sessionId || user.sid || null,
     jti: crypto.randomUUID()
   };
 

@@ -7,6 +7,7 @@ const {
   logoutSession
 } = require('../auth/service');
 const { requireAuth } = require('../middleware/auth');
+const { recordAudit, AUDIT_ACTIONS } = require('../audit/service');
 
 const router = express.Router();
 
@@ -49,6 +50,7 @@ router.post('/register', async (req, res) => {
   try {
     const { email, password } = req.body || {};
     const user = await registerUser({ email, password });
+
     return res.status(201).json({
       message: 'Account created successfully. You can now sign in.',
       user
@@ -78,8 +80,25 @@ router.post('/login', async (req, res) => {
 
     setAuthCookies(res, result.accessToken, result.refreshToken);
 
+    recordAudit({
+      action: AUDIT_ACTIONS.AUTH_LOGIN_SUCCESS,
+      req,
+      actorId: result.user ? result.user.id : null,
+      actorEmail: email,
+      resourceType: 'session',
+      details: { mfaRequired: result.mfaRequired || false }
+    });
+
     return res.status(200).json(result);
   } catch (err) {
+    recordAudit({
+      action: AUDIT_ACTIONS.AUTH_LOGIN_FAILED,
+      req,
+      actorEmail: (req.body && req.body.email) || null,
+      resourceType: 'auth',
+      details: { error: err.message || 'Invalid email or password.' }
+    });
+
     return res.status(err.statusCode || 401).json({
       error: err.message || 'Invalid email or password.'
     });
@@ -103,9 +122,25 @@ router.post('/refresh', async (req, res) => {
 
     setAuthCookies(res, result.accessToken, result.refreshToken);
 
+    recordAudit({
+      action: AUDIT_ACTIONS.AUTH_TOKEN_REFRESH,
+      req,
+      resourceType: 'session'
+    });
+
     return res.status(200).json(result);
   } catch (err) {
     clearAuthCookies(res);
+
+    if (err.code === 'TOKEN_REUSE_DETECTED') {
+      recordAudit({
+        action: AUDIT_ACTIONS.AUTH_TOKEN_REUSE,
+        req,
+        resourceType: 'session',
+        details: { error: 'Refresh token reuse detected; compromised session revoked' }
+      });
+    }
+
     return res.status(err.statusCode || 401).json({
       error: err.message || 'Session expired or invalid.',
       code: err.code || 'UNAUTHORIZED'
@@ -121,6 +156,13 @@ router.post('/logout', async (req, res) => {
     const refreshToken = (req.body && req.body.refreshToken) || (req.cookies && req.cookies.refreshToken);
     await logoutSession(refreshToken);
     clearAuthCookies(res);
+
+    recordAudit({
+      action: AUDIT_ACTIONS.AUTH_LOGOUT,
+      req,
+      resourceType: 'session'
+    });
+
     return res.status(200).json({
       message: 'Successfully logged out.'
     });
@@ -152,8 +194,24 @@ router.post('/mfa/verify', async (req, res) => {
 
     setAuthCookies(res, result.accessToken, result.refreshToken);
 
+    recordAudit({
+      action: recoveryCode ? AUDIT_ACTIONS.MFA_RECOVERY_USED : AUDIT_ACTIONS.AUTH_LOGIN_SUCCESS,
+      req,
+      actorId: result.user.id,
+      actorEmail: result.user.email,
+      resourceType: 'mfa',
+      details: { method: recoveryCode ? 'recovery_code' : 'totp' }
+    });
+
     return res.status(200).json(result);
   } catch (err) {
+    recordAudit({
+      action: AUDIT_ACTIONS.MFA_FAILED,
+      req,
+      resourceType: 'mfa',
+      details: { error: err.message }
+    });
+
     return res.status(err.statusCode || 401).json({
       error: err.message || 'Invalid authentication code.'
     });
@@ -170,6 +228,13 @@ router.post('/mfa/setup', requireAuth, async (req, res) => {
     const { secret, otpAuthUrl, qrCodeDataUrl } = await generateTotpEnrollment(req.user.email);
     const recoveryCodes = generateRecoveryCodes(8);
     const setupToken = generateMfaSetupToken(req.user.id, secret, recoveryCodes);
+
+    recordAudit({
+      action: AUDIT_ACTIONS.MFA_SETUP_INIT,
+      req,
+      resourceType: 'mfa',
+      resourceId: req.user.id
+    });
 
     return res.status(200).json({
       secret,
@@ -196,6 +261,13 @@ router.post('/mfa/confirm', requireAuth, async (req, res) => {
 
     await confirmMfaEnrollment(req.user.id, setupToken, code);
 
+    recordAudit({
+      action: AUDIT_ACTIONS.MFA_ENABLE,
+      req,
+      resourceType: 'mfa',
+      resourceId: req.user.id
+    });
+
     return res.status(200).json({
       message: 'Two-factor authentication successfully enabled.'
     });
@@ -214,6 +286,13 @@ router.post('/mfa/disable', requireAuth, (req, res) => {
   try {
     const { disableMfa } = require('../auth/mfa');
     disableMfa(req.user.id);
+
+    recordAudit({
+      action: AUDIT_ACTIONS.MFA_DISABLE,
+      req,
+      resourceType: 'mfa',
+      resourceId: req.user.id
+    });
 
     return res.status(200).json({
       message: 'Two-factor authentication has been disabled.'

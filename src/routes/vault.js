@@ -5,6 +5,7 @@ const { requireAuth } = require('../middleware/auth');
 const { requireOwnershipOrShare } = require('../gateway/ownership');
 const { encryptEnvelope, decryptEnvelope, rewrapEnvelope } = require('../crypto/envelope');
 const { rotateActiveKek, getActiveKek } = require('../crypto/key-manager');
+const { recordAudit, AUDIT_ACTIONS } = require('../audit/service');
 
 const router = express.Router();
 
@@ -81,6 +82,15 @@ router.post('/items', requireAuth, (req, res) => {
   );
 
   const item = db.prepare('SELECT * FROM vault_items WHERE id = ?').get(id);
+
+  recordAudit({
+    action: AUDIT_ACTIONS.VAULT_SECRET_CREATE,
+    req,
+    resourceType: 'vault_item',
+    resourceId: id,
+    details: { title: title.trim(), category, version: initialVersion, kekVersion: envelope.kekVersion }
+  });
+
   return res.status(201).json({ item });
 });
 
@@ -160,6 +170,14 @@ router.get('/items/:id', requireAuth, requireOwnershipOrShare('read'), (req, res
       const aad = `${req.item.id}:v${targetVersion}`;
       decryptedSecret = decryptEnvelope(envelope, { aad });
     }
+
+    recordAudit({
+      action: AUDIT_ACTIONS.VAULT_SECRET_READ,
+      req,
+      resourceType: 'vault_item',
+      resourceId: req.item.id,
+      details: { version: targetVersion, title: req.item.title }
+    });
 
     return res.status(200).json({
       item: req.item,
@@ -265,6 +283,18 @@ router.put('/items/:id', requireAuth, requireOwnershipOrShare('write'), (req, re
   }
 
   const updated = db.prepare('SELECT * FROM vault_items WHERE id = ?').get(req.item.id);
+
+  recordAudit({
+    action: AUDIT_ACTIONS.VAULT_SECRET_UPDATE,
+    req,
+    resourceType: 'vault_item',
+    resourceId: req.item.id,
+    details: {
+      version: updated ? updated.current_version : req.item.current_version,
+      hasNewSecret: payloadToEncrypt !== undefined && payloadToEncrypt !== null
+    }
+  });
+
   return res.status(200).json({ item: updated });
 });
 
@@ -275,6 +305,15 @@ router.put('/items/:id', requireAuth, requireOwnershipOrShare('write'), (req, re
 router.delete('/items/:id', requireAuth, requireOwnershipOrShare('owner'), (req, res) => {
   const db = getDatabase();
   db.prepare('DELETE FROM vault_items WHERE id = ?').run(req.item.id);
+
+  recordAudit({
+    action: AUDIT_ACTIONS.VAULT_SECRET_DELETE,
+    req,
+    resourceType: 'vault_item',
+    resourceId: req.item.id,
+    details: { title: req.item.title }
+  });
+
   return res.status(200).json({ message: 'Vault item deleted successfully.' });
 });
 
@@ -363,6 +402,14 @@ router.post('/rotate-keys', requireAuth, (req, res) => {
     }
   }
 
+  recordAudit({
+    action: AUDIT_ACTIONS.KEK_ROTATE,
+    req,
+    resourceType: 'key',
+    resourceId: rotatedVersion,
+    details: { itemsRotated, versionsRotated, activeKekVersion: rotatedVersion }
+  });
+
   return res.status(200).json({
     message: 'Key rotation complete. All DEKs successfully re-wrapped.',
     activeKekVersion: rotatedVersion,
@@ -420,6 +467,14 @@ router.post('/items/:id/share', requireAuth, requireOwnershipOrShare('owner'), (
     WHERE s.item_id = ? AND s.shared_with_user_id = ?
   `).get(req.item.id, targetUser.id);
 
+  recordAudit({
+    action: AUDIT_ACTIONS.VAULT_SECRET_SHARE,
+    req,
+    resourceType: 'vault_item',
+    resourceId: req.item.id,
+    details: { sharedWithUserId: targetUser.id, sharedWithEmail: targetUser.email, permission }
+  });
+
   return res.status(201).json({ share });
 });
 
@@ -448,6 +503,14 @@ router.delete('/items/:id/share/:userId', requireAuth, requireOwnershipOrShare('
   db.prepare(`
     DELETE FROM item_shares WHERE item_id = ? AND shared_with_user_id = ?
   `).run(req.item.id, req.params.userId);
+
+  recordAudit({
+    action: AUDIT_ACTIONS.VAULT_SECRET_UNSHARE,
+    req,
+    resourceType: 'vault_item',
+    resourceId: req.item.id,
+    details: { unsharedUserId: req.params.userId }
+  });
 
   return res.status(200).json({ message: 'Share revoked successfully.' });
 });
