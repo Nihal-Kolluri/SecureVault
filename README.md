@@ -12,7 +12,7 @@ SecureVault is an encrypted digital vault application designed with robust secur
 | **Phase 3** | Gateway, RBAC & Rate Limiting | `phase-3-gateway-rbac` | ✅ Completed | `v0.3.0` |
 | **Phase 4** | Encryption & Vault | `phase-4-encryption-vault` | ✅ Completed | `v0.4.0` |
 | **Phase 5** | Encrypted Files & MinIO Storage | `phase-5-files` | ✅ Completed | `v0.5.0` |
-| **Phase 6** | Audit Logging & Monitoring | `phase-6-audit-logging` | ⏳ Pending | - |
+| **Phase 6** | Sessions & Hash-Chained Audit Trail | `phase-6-sessions-audit` | 🔄 In Review | `v0.6.0` (pending) |
 | **Phase 7** | End-to-End Integration & API | `phase-7-e2e-api` | ⏳ Pending | - |
 | **Phase 8** | Deployment & Infrastructure | `phase-8-infra` | ⏳ Pending | - |
 | **Phase 9** | Red Team Vulnerability Assessment | `vulnerable` (isolated) | ⏳ Pending | - |
