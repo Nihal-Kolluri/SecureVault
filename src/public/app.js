@@ -1870,9 +1870,16 @@ window.addEventListener('DOMContentLoaded', () => {
       }
     }
   } else if (view === 'sessions') {
-    document.getElementById('authCard').classList.add('hidden');
-    document.getElementById('vaultDashboard').classList.remove('hidden');
+    document.getElementById('signInForm').classList.add('hidden');
     document.getElementById('authTabs').style.display = 'none';
+
+    const wrapper = document.querySelector('.auth-wrapper');
+    if (wrapper) wrapper.classList.add('vault-active');
+
+    const dashboard = document.getElementById('vaultDashboard');
+    dashboard.classList.remove('hidden');
+    document.getElementById('dashUserEmail').textContent = 'security.lead@securevault.io';
+    updateMfaStatusUI(true, 8);
 
     sessionState.accessToken = 'mock-access-token';
     sessionState.tokenExpiresAt = Date.now() + 15 * 60 * 1000;
@@ -1914,9 +1921,16 @@ window.addEventListener('DOMContentLoaded', () => {
     switchVaultView('sessions');
     renderSessionsList();
   } else if (view === 'audit') {
-    document.getElementById('authCard').classList.add('hidden');
-    document.getElementById('vaultDashboard').classList.remove('hidden');
+    document.getElementById('signInForm').classList.add('hidden');
     document.getElementById('authTabs').style.display = 'none';
+
+    const wrapper = document.querySelector('.auth-wrapper');
+    if (wrapper) wrapper.classList.add('vault-active');
+
+    const dashboard = document.getElementById('vaultDashboard');
+    dashboard.classList.remove('hidden');
+    document.getElementById('dashUserEmail').textContent = 'security.lead@securevault.io';
+    updateMfaStatusUI(true, 8);
 
     sessionState.accessToken = 'mock-access-token';
     sessionState.tokenExpiresAt = Date.now() + 15 * 60 * 1000;
@@ -1993,6 +2007,11 @@ window.addEventListener('DOMContentLoaded', () => {
 async function loadSessions() {
   const container = document.getElementById('sessionsList');
   if (!container || !sessionState.accessToken) return;
+
+  if (sessionState.accessToken === 'mock-access-token') {
+    renderSessionsList();
+    return;
+  }
 
   try {
     const res = await fetch('/api/sessions', {
@@ -2142,6 +2161,11 @@ let currentAuditSearchQuery = '';
 async function loadAuditLogs() {
   const container = document.getElementById('auditLogsList');
   if (!container || !sessionState.accessToken) return;
+
+  if (sessionState.accessToken === 'mock-access-token') {
+    renderAuditLogs();
+    return;
+  }
 
   try {
     let url = '/api/audit?limit=50';

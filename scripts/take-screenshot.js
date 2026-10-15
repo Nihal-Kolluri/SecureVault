@@ -64,6 +64,7 @@ async function captureUrl(browserPath, url, outputFile) {
 
 const PHASE4_DIR = path.join(__dirname, '..', 'docs', 'screenshots', 'phase-4');
 const PHASE5_DIR = path.join(__dirname, '..', 'docs', 'screenshots', 'phase-5');
+const PHASE6_DIR = path.join(__dirname, '..', 'docs', 'screenshots', 'phase-6');
 
 async function run() {
   if (!fs.existsSync(PHASE2_DIR)) {
@@ -74,6 +75,9 @@ async function run() {
   }
   if (!fs.existsSync(PHASE5_DIR)) {
     fs.mkdirSync(PHASE5_DIR, { recursive: true });
+  }
+  if (!fs.existsSync(PHASE6_DIR)) {
+    fs.mkdirSync(PHASE6_DIR, { recursive: true });
   }
 
   const browserPath = getBrowserPath();
@@ -142,6 +146,19 @@ async function run() {
       browserPath,
       `http://localhost:${PORT}/?view=files-verified`,
       path.join(PHASE5_DIR, 'files-verified.png')
+    );
+
+    // Phase 6 screenshots
+    await captureUrl(
+      browserPath,
+      `http://localhost:${PORT}/?view=sessions`,
+      path.join(PHASE6_DIR, 'sessions.png')
+    );
+
+    await captureUrl(
+      browserPath,
+      `http://localhost:${PORT}/?view=audit`,
+      path.join(PHASE6_DIR, 'audit-trail.png')
     );
 
     console.log('All screenshots successfully captured!');
