@@ -51,16 +51,6 @@ router.post('/register', async (req, res) => {
     const { email, password } = req.body || {};
     const user = await registerUser({ email, password });
 
-    recordAudit({
-      action: AUDIT_ACTIONS.AUTH_REGISTER,
-      req,
-      actorId: user.id,
-      actorEmail: user.email,
-      resourceType: 'user',
-      resourceId: user.id,
-      details: { role: user.role }
-    });
-
     return res.status(201).json({
       message: 'Account created successfully. You can now sign in.',
       user

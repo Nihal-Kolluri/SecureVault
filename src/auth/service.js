@@ -21,6 +21,7 @@ const {
   verifyAndConsumeRecoveryCode,
   MAX_MFA_FAILURES
 } = require('./mfa');
+const { recordAudit, AUDIT_ACTIONS } = require('../audit/service');
 
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_WINDOW_MINUTES = 15;
@@ -126,6 +127,15 @@ async function registerUser({ email, password, role = 'user' }) {
     INSERT INTO users (id, email, password_hash, role, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(userId, normalizedEmail, passwordHash, userRole, now, now);
+
+  recordAudit({
+    action: AUDIT_ACTIONS.AUTH_REGISTER,
+    actorId: userId,
+    actorEmail: normalizedEmail,
+    resourceType: 'user',
+    resourceId: userId,
+    details: { role: userRole }
+  });
 
   return {
     id: userId,
