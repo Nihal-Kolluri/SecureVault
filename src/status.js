@@ -4,8 +4,8 @@
 function getVaultStatus() {
   return {
     status: 'online',
-    version: '0.5.0',
-    phase: 'Phase 5: Encrypted files',
+    version: '0.6.0',
+    phase: 'Phase 6: Sessions and audit trail',
     timestamp: new Date().toISOString()
   };
 }
