@@ -34,8 +34,22 @@ function requireAuth(req, res, next) {
     req.user = {
       id: user.id,
       email: user.email,
-      role: user.role || 'user'
+      role: user.role || 'user',
+      sessionId: payload.sid || null
     };
+
+    if (req.user.sessionId) {
+      const { getDatabase } = require('../db/database');
+      const db = getDatabase();
+      const sess = db.prepare('SELECT is_revoked FROM sessions WHERE id = ?').get(req.user.sessionId);
+      if (sess && sess.is_revoked === 1) {
+        return res.status(401).json({
+          error: 'Session has been revoked. Please sign in again.',
+          code: 'SESSION_REVOKED'
+        });
+      }
+    }
+
     next();
   } catch (err) {
     if (err.name === 'TokenExpiredError') {

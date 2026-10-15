@@ -205,7 +205,7 @@ async function loginUser({ email, password, ipAddress = null, userAgent = null }
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
   `).run(sessionId, user.id, tokenHash, userAgent, ipAddress, expiresAt, now, now);
 
-  const accessToken = generateAccessToken({ id: user.id, email: user.email, role: user.role || 'user' });
+  const accessToken = generateAccessToken({ id: user.id, email: user.email, role: user.role || 'user', sessionId });
 
   return {
     mfaRequired: false,
@@ -282,7 +282,7 @@ async function verifyMfaLogin({ mfaToken, code, recoveryCode, ipAddress = null, 
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
   `).run(sessionId, user.id, tokenHash, userAgent, ipAddress, expiresAt, now, now);
 
-  const accessToken = generateAccessToken({ id: user.id, email: user.email, role: user.role || 'user' });
+  const accessToken = generateAccessToken({ id: user.id, email: user.email, role: user.role || 'user', sessionId });
 
   return {
     accessToken,
@@ -373,7 +373,7 @@ async function refreshSession({ refreshToken, ipAddress = null, userAgent = null
     WHERE id = ?
   `).run(newHash, now, newExpiresAt, ipAddress, userAgent, session.id);
 
-  const accessToken = generateAccessToken(user);
+  const accessToken = generateAccessToken({ id: user.id, email: user.email, role: user.role || 'user', sessionId: session.id });
 
   return {
     accessToken,
