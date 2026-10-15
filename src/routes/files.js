@@ -17,6 +17,7 @@ const {
   getObjectStream,
   deleteObject
 } = require('../storage/minio');
+const { recordAudit, AUDIT_ACTIONS } = require('../audit/service');
 
 const router = express.Router();
 
@@ -235,6 +236,19 @@ router.post('/upload', requireAuth, (req, res) => {
         `).get(fileId);
 
         if (!res.headersSent) {
+          recordAudit({
+            action: AUDIT_ACTIONS.FILE_UPLOAD,
+            req,
+            resourceType: 'file',
+            resourceId: createdRecord.id,
+            details: {
+              filename: createdRecord.filename,
+              sizeBytes: createdRecord.size_bytes,
+              mimeType: createdRecord.mime_type,
+              sha256Checksum: createdRecord.sha256_checksum
+            }
+          });
+
           return res.status(201).json({
             message: 'File encrypted and stored successfully.',
             file: {
@@ -419,6 +433,14 @@ router.get('/:id/download', requireAuth, async (req, res) => {
       res.destroy(err);
     });
 
+    recordAudit({
+      action: AUDIT_ACTIONS.FILE_DOWNLOAD,
+      req,
+      resourceType: 'file',
+      resourceId: file.id,
+      details: { filename: file.filename, sizeBytes: file.size_bytes, sha256: file.sha256_checksum }
+    });
+
     ciphertextStream.pipe(decryptionPipeline).pipe(res);
   } catch (err) {
     if (err.code === 'ERR_CIPHERTEXT_TAMPER' || err.code === 'ERR_DEK_TAMPER') {
@@ -458,6 +480,14 @@ router.get('/:id/verify', requireAuth, async (req, res) => {
       tag: Buffer.from(file.tag, 'hex'),
       aad,
       expectedChecksum: file.sha256_checksum
+    });
+
+    recordAudit({
+      action: AUDIT_ACTIONS.FILE_VERIFY,
+      req,
+      resourceType: 'file',
+      resourceId: file.id,
+      details: { filename: file.filename, status: 'INTACT_AND_AUTHENTICATED', sha256Checksum: result.checksum }
     });
 
     return res.status(200).json({
@@ -507,6 +537,14 @@ router.delete('/:id', requireAuth, async (req, res) => {
   try {
     await deleteObject(file.storage_bucket, file.storage_key);
     db.prepare('DELETE FROM vault_files WHERE id = ?').run(file.id);
+
+    recordAudit({
+      action: AUDIT_ACTIONS.FILE_DELETE,
+      req,
+      resourceType: 'file',
+      resourceId: file.id,
+      details: { filename: file.filename, sizeBytes: file.size_bytes }
+    });
 
     return res.status(200).json({
       message: 'File deleted successfully',
